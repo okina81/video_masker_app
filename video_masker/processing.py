@@ -7,6 +7,7 @@ import cv2
 from video_masker.masking import MASKERS, make_manual_masker, make_overlay_masker, mask_region
 from video_masker.media import load_overlay_image, read_image, write_image
 from video_masker.model import MODEL_PATH, create_scrfd_detector, ensure_model
+from video_masker.motion import estimate_camera_motion, to_gray
 from video_masker.tracking import TrackedItem
 
 
@@ -90,7 +91,8 @@ def _default_manual_masker(roi):
     return np.zeros_like(roi)
 
 
-def mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track=False, track_items=None):
+def mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track=False,
+                        track_items=None, camera_motion=(0.0, 0.0)):
     if track:
         for item in track_items or []:
             if frame_idx < item.start:
@@ -101,7 +103,7 @@ def mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track=
                 item.init(frame)
                 mask_region(frame, item.current_box, manual_masker_fn)
             else:
-                item.update(frame)
+                item.update(frame, camera_motion)
                 if item.active:
                     mask_region(frame, item.current_box, manual_masker_fn)
         return
@@ -196,6 +198,9 @@ def process_video(
         if use_scrfd:
             scrfd_detector = create_scrfd_detector(log_cb)
 
+    # 追従時のみカメラ動き補正のため前フレームのグレースケールを保持
+    prev_gray = None
+
     frame_idx = 0
     cancelled = False
     try:
@@ -208,9 +213,16 @@ def process_video(
             if not ret:
                 break
 
+            camera_motion = (0.0, 0.0)
+            if track:
+                cur_gray = to_gray(frame)
+                camera_motion = estimate_camera_motion(prev_gray, cur_gray)
+                prev_gray = cur_gray
+
             if face_detector is not None:
                 mask_faces(frame, face_detector, masker, face_margin, scrfd_detector)
-            mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track, track_items)
+            mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn,
+                                track, track_items, camera_motion)
 
             writer.write(frame)
             frame_idx += 1

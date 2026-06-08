@@ -73,7 +73,7 @@ class TrackedItem:
         self.lost_count = 0
         self.active = True
 
-    def update(self, frame):
+    def update(self, frame, camera_motion=(0.0, 0.0)):
         if self.tracker is None or self.kalman is None:
             return
 
@@ -89,14 +89,18 @@ class TrackedItem:
             self.active = True
         else:
             self.lost_count += 1
+            # 見失っている間はカメラの動きぶんだけ予測位置をずらす
+            dx, dy = camera_motion
+            px, py, pw, ph = _box_from_state(predicted)
+            shifted = (px + dx, py + dy, pw, ph)
 
             if self.lost_count <= _REINIT_AFTER:
-                # Kalman 予測値でマスクを継続
-                self.current_box = _box_from_state(predicted)
+                # Kalman 予測値（カメラ動き補正済み）でマスクを継続
+                self.current_box = shifted
                 self.active = True
             elif self.lost_count <= _GIVE_UP_AFTER:
-                # 再初期化を試みる（Kalman 予測位置付近で再トライ）
-                pred_box = _box_from_state(predicted)
+                # 再初期化を試みる（カメラ動き補正済みの予測位置付近で再トライ）
+                pred_box = shifted
                 x, y, w, h = (int(v) for v in pred_box)
                 new_tracker = create_tracker()
                 try:
