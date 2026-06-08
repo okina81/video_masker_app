@@ -35,7 +35,8 @@ def build_track_items(manual_boxes):
     for box in manual_boxes:
         x, y, w, h = box[:4]
         start_frame = box[4] if len(box) > 4 else 0
-        items.append(TrackedItem((x, y, w, h), start_frame))
+        end_frame = box[5] if len(box) > 5 else None
+        items.append(TrackedItem((x, y, w, h), start_frame, end_frame))
     return items
 
 
@@ -94,6 +95,8 @@ def mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track=
         for item in track_items or []:
             if frame_idx < item.start:
                 continue
+            if item.end is not None and frame_idx >= item.end:
+                continue
             if item.tracker is None:
                 item.init(frame)
                 mask_region(frame, item.current_box, manual_masker_fn)
@@ -105,7 +108,10 @@ def mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track=
 
     for box in manual_boxes:
         start_frame = box[4] if len(box) > 4 else 0
+        end_frame = box[5] if len(box) > 5 else None
         if frame_idx < start_frame:
+            continue
+        if end_frame is not None and frame_idx >= end_frame:
             continue
         mask_region(frame, box[:4], manual_masker_fn)
 

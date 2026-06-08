@@ -22,6 +22,22 @@ def _bgr_to_hex(color_bgr):
     return "#{:02X}{:02X}{:02X}".format(r, g, b)
 
 
+def _box_start(box):
+    return box[4] if len(box) > 4 else 0
+
+
+def _box_end(box):
+    """終了フレーム。None なら最後まで適用。"""
+    return box[5] if len(box) > 5 else None
+
+
+def _rebuild_box(x, y, w, h, start, end):
+    """ジオメトリを更新しつつ start / end を保持した box タプルを作る。"""
+    if end is None:
+        return (int(x), int(y), int(w), int(h), int(start))
+    return (int(x), int(y), int(w), int(h), int(start), int(end))
+
+
 class _ActionButton(tk.Label):
     """macOS でも背景色と文字色が消えないボタン風ラベル。"""
 
@@ -100,6 +116,7 @@ class RoiSelector(tk.Toplevel):
         self._edit_idx      = -1
         self._resize_corner = None
         self._move_offset   = (0, 0)
+        self._selected_idx  = -1  # 終了フレーム設定の対象
 
         # ── ファイル切り替えバー（複数ファイル時のみ）
         if self._all_paths:
@@ -177,6 +194,20 @@ class RoiSelector(tk.Toplevel):
         self.time_label.pack(side="left")
         if self.media_type == "video":
             self._seek_row.pack(fill="x", padx=10, pady=8)
+
+        # ── 終了フレーム（タイムライン）行：選択中の範囲をどこで消すか
+        self._timeline_row = tk.Frame(self)
+        tk.Label(self._timeline_row, text="選択中の範囲:",
+                 font=("Helvetica", 11)).pack(side="left")
+        self._timeline_label = tk.Label(self._timeline_row, text="なし",
+                                        font=("Helvetica", 11), fg="#555555")
+        self._timeline_label.pack(side="left", padx=(4, 10))
+        tk.Button(self._timeline_row, text="このフレームで消す",
+                  command=self._set_end_here).pack(side="left")
+        tk.Button(self._timeline_row, text="最後まで表示",
+                  command=self._clear_end).pack(side="left", padx=6)
+        if self.media_type == "video":
+            self._timeline_row.pack(fill="x", padx=10, pady=(0, 6))
 
         self._btns_row = tk.Frame(self)
         btns = self._btns_row
@@ -270,6 +301,7 @@ class RoiSelector(tk.Toplevel):
 
         # 新しいファイルの boxes をロード
         self.boxes = list(self._file_boxes.get(path, []))
+        self._selected_idx = -1
 
         # シークバー行の表示を更新
         if self.media_type == "video":
@@ -279,8 +311,11 @@ class RoiSelector(tk.Toplevel):
             self.time_label.config(text="0:00 / " + total_time)
             self._seek_row.pack(fill="x", padx=10, pady=8,
                                 before=self._btns_row)
+            self._timeline_row.pack(fill="x", padx=10, pady=(0, 6),
+                                    before=self._btns_row)
         else:
             self._seek_row.pack_forget()
+            self._timeline_row.pack_forget()
 
         self.cur_frame = 0
         self.show_frame(0)
@@ -393,6 +428,7 @@ class RoiSelector(tk.Toplevel):
             cur_time = _frames_to_time(idx, self.fps)
             total_time = _frames_to_time(self.total, self.fps)
             self.time_label.config(text=cur_time + " / " + total_time)
+            self._update_timeline_label()
 
     def draw_boxes(self):
         fill_color = _bgr_to_hex(self.color_bgr)
@@ -400,11 +436,19 @@ class RoiSelector(tk.Toplevel):
             x, y, w, h = box[:4]
             x0, y0 = x * self.scale, y * self.scale
             x1, y1 = (x + w) * self.scale, (y + h) * self.scale
+            selected = (i - 1) == self._selected_idx
+            accent = "#0072B2" if selected else "#D55E00"
             self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill_color, stipple="gray50", outline="")
             self.canvas.create_rectangle(x0, y0, x1, y1, outline="#FFFFFF", width=4)
-            self.canvas.create_rectangle(x0, y0, x1, y1, outline="#D55E00", width=2)
-            self.canvas.create_rectangle(x0, y0, x0 + 22, y0 + 18, fill="#D55E00", outline="#FFFFFF")
-            self.canvas.create_text(x0 + 11, y0 + 9, text=str(i), fill="#FFFFFF", font=("Helvetica", 11, "bold"))
+            self.canvas.create_rectangle(x0, y0, x1, y1, outline=accent,
+                                         width=3 if selected else 2)
+            # 番号バッジ（終了フレーム設定済みなら ⏹ を付ける）
+            end = _box_end(box)
+            badge = f"{i}⏹" if end is not None else str(i)
+            bw = 30 if end is not None else 22
+            self.canvas.create_rectangle(x0, y0, x0 + bw, y0 + 18, fill=accent, outline="#FFFFFF")
+            self.canvas.create_text(x0 + bw / 2, y0 + 9, text=badge,
+                                    fill="#FFFFFF", font=("Helvetica", 11, "bold"))
 
     # ── マウスイベント ────────────────────────────────────────────────────
 
@@ -433,12 +477,14 @@ class RoiSelector(tk.Toplevel):
                 self._edit_mode    = "resize"
                 self._edit_idx     = i
                 self._resize_corner = corner
+                self._select_box(i)
                 return
             if self._inside_box(cx, cy, box):
                 x, y = box[:2]
                 self._edit_mode   = "move"
                 self._edit_idx    = i
                 self._move_offset = (cx - x * self.scale, cy - y * self.scale)
+                self._select_box(i)
                 return
 
         # ボックス外 → 新規描画
@@ -470,8 +516,8 @@ class RoiSelector(tk.Toplevel):
                 # 画像境界でクランプ
                 new_x = max(0, min(new_x, self.orig_w - w))
                 new_y = max(0, min(new_y, self.orig_h - h))
-                start_frame = box[4] if len(box) > 4 else 0
-                self.boxes[idx] = (new_x, new_y, w, h, start_frame)
+                self.boxes[idx] = _rebuild_box(
+                    new_x, new_y, w, h, _box_start(box), _box_end(box))
                 self.show_frame(self.cur_frame)
 
         elif self._edit_mode == "resize":
@@ -479,7 +525,8 @@ class RoiSelector(tk.Toplevel):
             if 0 <= idx < len(self.boxes):
                 box = self.boxes[idx]
                 ox, oy, ow, oh = box[:4]
-                start_frame = box[4] if len(box) > 4 else 0
+                start_frame = _box_start(box)
+                end_frame = _box_end(box)
                 # 現在の角の対角座標
                 x0_orig = ox * self.scale
                 y0_orig = oy * self.scale
@@ -516,7 +563,7 @@ class RoiSelector(tk.Toplevel):
                 # 画像境界でクランプ
                 nx = max(0, min(nx, self.orig_w - nw))
                 ny = max(0, min(ny, self.orig_h - nh))
-                self.boxes[idx] = (nx, ny, nw, nh, start_frame)
+                self.boxes[idx] = _rebuild_box(nx, ny, nw, nh, start_frame, end_frame)
                 self.show_frame(self.cur_frame)
 
     def on_release(self, event):
@@ -542,6 +589,7 @@ class RoiSelector(tk.Toplevel):
         start_frame = self.cur_frame if self.media_type == "video" else 0
         self.boxes.append((int(x / self.scale), int(y / self.scale),
                            int(w / self.scale), int(h / self.scale), start_frame))
+        self._select_box(len(self.boxes) - 1)
         self.show_frame(self.cur_frame)
 
     def on_seek(self, _=None):
@@ -566,13 +614,70 @@ class RoiSelector(tk.Toplevel):
         self.show_frame(nxt)
         self.after(int(1000 / self.fps), self.play_loop)
 
+    # ── 終了フレーム（タイムライン） ─────────────────────────────────────
+
+    def _select_box(self, idx):
+        self._selected_idx = idx
+        self._update_timeline_label()
+
+    def _update_timeline_label(self):
+        if self.media_type != "video":
+            return
+        idx = self._selected_idx
+        if not (0 <= idx < len(self.boxes)):
+            self._timeline_label.config(text="なし（範囲を選ぶと設定できます）")
+            return
+        box = self.boxes[idx]
+        start = _box_start(box)
+        end = _box_end(box)
+        s_txt = _frames_to_time(start, self.fps)
+        if end is None:
+            e_txt = "最後まで"
+        else:
+            e_txt = _frames_to_time(end, self.fps)
+        self._timeline_label.config(
+            text=f"範囲 {idx + 1}：{s_txt} 〜 {e_txt}", fg="#D55E00")
+
+    def _set_end_here(self):
+        idx = self._selected_idx
+        if not (0 <= idx < len(self.boxes)):
+            messagebox.showinfo("おしらせ",
+                                "さきに範囲をクリックして選んでください。", parent=self)
+            return
+        box = self.boxes[idx]
+        start = _box_start(box)
+        end = self.cur_frame
+        if end <= start:
+            messagebox.showinfo("おしらせ",
+                                "開始フレームより後ろを終了フレームにしてください。",
+                                parent=self)
+            return
+        x, y, w, h = box[:4]
+        self.boxes[idx] = _rebuild_box(x, y, w, h, start, end)
+        self._update_timeline_label()
+        self.show_frame(self.cur_frame)
+
+    def _clear_end(self):
+        idx = self._selected_idx
+        if not (0 <= idx < len(self.boxes)):
+            return
+        box = self.boxes[idx]
+        x, y, w, h = box[:4]
+        self.boxes[idx] = _rebuild_box(x, y, w, h, _box_start(box), None)
+        self._update_timeline_label()
+        self.show_frame(self.cur_frame)
+
     def undo(self):
         if self.boxes:
             self.boxes.pop()
+            self._selected_idx = min(self._selected_idx, len(self.boxes) - 1)
+            self._update_timeline_label()
             self.show_frame(self.cur_frame)
 
     def clear(self):
         self.boxes = []
+        self._selected_idx = -1
+        self._update_timeline_label()
         self.show_frame(self.cur_frame)
 
     def on_right_click(self, event):
@@ -581,6 +686,11 @@ class RoiSelector(tk.Toplevel):
             x, y, w, h = self.boxes[i][:4]
             if x * self.scale <= click_x <= (x + w) * self.scale and y * self.scale <= click_y <= (y + h) * self.scale:
                 self.boxes.pop(i)
+                if self._selected_idx == i:
+                    self._selected_idx = -1
+                elif self._selected_idx > i:
+                    self._selected_idx -= 1
+                self._update_timeline_label()
                 self.show_frame(self.cur_frame)
                 return
 

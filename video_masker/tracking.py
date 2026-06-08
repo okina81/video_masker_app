@@ -55,9 +55,10 @@ def _measurement(box):
 class TrackedItem:
     """CSRT + Kalman フィルターで一つの手動範囲を追従する。"""
 
-    def __init__(self, box, start_frame):
+    def __init__(self, box, start_frame, end_frame=None):
         self.init_box = tuple(int(v) for v in box)
         self.start = start_frame
+        self.end = end_frame  # None なら最後まで適用
         self.tracker = None
         self.kalman = None
         self.lost_count = 0
