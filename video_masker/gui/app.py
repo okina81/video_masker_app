@@ -174,7 +174,8 @@ class MaskApp:
         self._proc_start  = 0.0
 
         root.title("画像・動画かくしツール")
-        root.geometry("700x920")
+        root.geometry("1280x820")
+        root.minsize(1040, 680)
         root.configure(bg=BG)
         root.resizable(True, True)
 
@@ -215,11 +216,21 @@ class MaskApp:
                  font=("Helvetica", 12),
                  bg=PRIMARY, fg="#B2F5EE").pack(anchor="w", pady=(6, 0))
 
-        content = tk.Frame(shell, bg=BG, padx=24, pady=20)
-        content.pack(fill="both", expand=True)
+        # ── 横長3カラムレイアウト ──
+        body = tk.Frame(shell, bg=BG, padx=20, pady=18)
+        body.pack(fill="both", expand=True)
+        for _i in range(3):
+            body.grid_columnconfigure(_i, weight=1, uniform="col")
+        body.grid_rowconfigure(0, weight=1)
+        col_left  = tk.Frame(body, bg=BG)
+        col_mid   = tk.Frame(body, bg=BG)
+        col_right = tk.Frame(body, bg=BG)
+        col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        col_mid.grid(row=0, column=1, sticky="nsew", padx=10)
+        col_right.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
 
-        # ── STEP 1: ファイルをえらぶ ──
-        s1 = self._card(content, "1", "ファイルをえらぶ")
+        # ── 左カラム STEP 1: ファイルをえらぶ ──
+        s1 = self._card(col_left, "1", "ファイルをえらぶ")
 
         dz = tk.Frame(s1, bg=PRIMARY_LT,
                       highlightbackground=PRIMARY, highlightthickness=2,
@@ -242,8 +253,8 @@ class MaskApp:
                                    font=F_MID, bg=SURFACE, fg=TEXT_MUTED)
         self.file_label.pack(anchor="w", pady=(12, 0))
 
-        # ── STEP 2: かくすものを決める ──
-        s2 = self._card(content, "2", "かくすものを決める")
+        # ── 中央カラム STEP 2: 顔をかくす ──
+        s2 = self._card(col_mid, "2", "顔をかくす")
 
         # 顔チェック
         self.faces_var = tk.BooleanVar(value=True)
@@ -331,14 +342,15 @@ class MaskApp:
         self.mode_var.trace_add("write", lambda *_: self._toggle_overlay_row())
         self._toggle_overlay_row()
 
-        ttk.Separator(s2).pack(fill="x", pady=14)
+        # ── 右カラム STEP 3: 手動範囲・文字をかくす ──
+        s3 = self._card(col_right, "3", "手動範囲・文字をかくす")
 
         # 手動範囲セクション
-        tk.Label(s2, text="手動で範囲を指定する",
+        tk.Label(s3, text="手動で範囲を指定する",
                  font=("Helvetica", 13, "bold"), bg=SURFACE, fg=TEXT).pack(anchor="w")
 
         # 色スウォッチ
-        crow = tk.Frame(s2, bg=SURFACE)
+        crow = tk.Frame(s3, bg=SURFACE)
         crow.pack(anchor="w", pady=(10, 4))
         tk.Label(crow, text="色", font=F_SMALL, bg=SURFACE,
                  fg=TEXT_MUTED, width=5, anchor="w").pack(side="left")
@@ -348,7 +360,7 @@ class MaskApp:
                     bg=SURFACE).pack(side="left", padx=3)
 
         # デザイントグル
-        drow = tk.Frame(s2, bg=SURFACE)
+        drow = tk.Frame(s3, bg=SURFACE)
         drow.pack(anchor="w", pady=(0, 10))
         tk.Label(drow, text="デザイン", font=F_SMALL, bg=SURFACE,
                  fg=TEXT_MUTED, width=7, anchor="w").pack(side="left")
@@ -359,7 +371,7 @@ class MaskApp:
             _ToggleBtn(seg2, name, name, self.manual_design_var).pack(side="left", padx=1)
 
         # 範囲選択ボタン
-        sel_row = tk.Frame(s2, bg=SURFACE)
+        sel_row = tk.Frame(s3, bg=SURFACE)
         sel_row.pack(fill="x", pady=(4, 6))
         self._btn(sel_row, "✏️  塗る範囲をえらぶ", self.open_selector,
                   F_MID, "secondary").pack(side="left")
@@ -369,7 +381,7 @@ class MaskApp:
 
         # 追従チェック
         self.track_var = tk.BooleanVar(value=False)
-        self._track_frame = tk.Frame(s2, bg=SURFACE)
+        self._track_frame = tk.Frame(s3, bg=SURFACE)
         self._track_frame.pack(anchor="w", pady=(2, 0))
         self._track_cb = tk.Checkbutton(
             self._track_frame,
@@ -381,12 +393,12 @@ class MaskApp:
         )
         self._track_cb.pack(side="left")
 
-        ttk.Separator(s2).pack(fill="x", pady=14)
+        ttk.Separator(s3).pack(fill="x", pady=14)
 
         # 文字（テキスト）の自動マスク
-        tk.Label(s2, text="文字（個人情報）を自動でかくす",
+        tk.Label(s3, text="文字（個人情報）を自動でかくす",
                  font=("Helvetica", 13, "bold"), bg=SURFACE, fg=TEXT).pack(anchor="w")
-        text_row = tk.Frame(s2, bg=SURFACE)
+        text_row = tk.Frame(s3, bg=SURFACE)
         text_row.pack(anchor="w", pady=(6, 0))
         self.text_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
@@ -396,14 +408,14 @@ class MaskApp:
             activebackground=SURFACE, selectcolor=SURFACE,
             cursor="hand2",
         ).pack(side="left")
-        tk.Label(s2, text="※ Tesseract（文字認識エンジン）が必要です。未導入のときは無視されます。",
+        tk.Label(s3, text="※ Tesseract（文字認識エンジン）が必要です。未導入のときは無視されます。",
                  font=("Helvetica", 10), bg=SURFACE, fg=TEXT_MUTED).pack(anchor="w", pady=(2, 0))
 
-        # ── STEP 3: 確認して書き出す ──
-        s3 = self._card(content, "3", "確認して書き出す")
+        # ── 左カラム STEP 4: 確認して書き出す ──
+        s4 = self._card(col_left, "4", "確認して書き出す")
 
         # 保存先フォルダ行
-        out_folder_row = tk.Frame(s3, bg=SURFACE)
+        out_folder_row = tk.Frame(s4, bg=SURFACE)
         out_folder_row.pack(fill="x", pady=(0, 4))
         tk.Label(out_folder_row, text="保存先フォルダ", font=F_SMALL,
                  bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").pack(side="left")
@@ -415,11 +427,11 @@ class MaskApp:
         out_folder_entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
         self._btn(out_folder_row, "変更", self._pick_out_folder,
                   ("Helvetica", 11), "secondary").pack(side="left")
-        tk.Label(s3, text="空欄のときは入力ファイルと同じフォルダに保存します",
+        tk.Label(s4, text="空欄のときは入力ファイルと同じフォルダに保存します",
                  font=("Helvetica", 10), bg=SURFACE, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 6))
 
         # ファイル名行
-        out_name_row = tk.Frame(s3, bg=SURFACE)
+        out_name_row = tk.Frame(s4, bg=SURFACE)
         out_name_row.pack(fill="x", pady=(0, 4))
         tk.Label(out_name_row, text="ファイル名", font=F_SMALL,
                  bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").pack(side="left")
@@ -429,20 +441,20 @@ class MaskApp:
                                         relief="flat", bd=1,
                                         highlightbackground=BORDER, highlightthickness=1)
         self._out_name_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
-        self._out_name_hint = tk.Label(s3, text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）",
+        self._out_name_hint = tk.Label(s4, text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）",
                                        font=("Helvetica", 10), bg=SURFACE, fg=TEXT_MUTED)
         self._out_name_hint.pack(anchor="w", pady=(0, 10))
 
-        btn_row = tk.Frame(s3, bg=SURFACE)
+        btn_row = tk.Frame(s4, bg=SURFACE)
         btn_row.pack(fill="x")
-        self.preview_btn = self._btn(btn_row, "👁  仕上がりプレビュー",
+        self.preview_btn = self._btn(btn_row, "👀  仕上がりプレビュー",
                                      self.open_finish_preview, F_BIG, "secondary")
         self.preview_btn.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.start_btn = self._btn(btn_row, "🚀  書き出す",
                                    self.on_run, F_BIG, "primary")
         self.start_btn.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
-        stat = tk.Frame(s3, bg=SURFACE_ALT,
+        stat = tk.Frame(s4, bg=SURFACE_ALT,
                         highlightbackground=BORDER, highlightthickness=1,
                         padx=14, pady=12)
         stat.pack(fill="x", pady=(14, 0))
