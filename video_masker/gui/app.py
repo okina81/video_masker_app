@@ -209,13 +209,15 @@ class MaskApp:
         F_MID   = FONT_BODY
         F_SMALL = FONT_LABEL
 
-        # ステータスバー（ウィンドウ最下部に常設）
+        # ステータスバー（最下部）→ アクションバー（その上）の順で常設。
+        # 設定（①②③）はその上のスクロール領域に流れる。
         self._build_statusbar()
+        self._build_actionbar()
 
         shell = self._scroll_shell(self.root)
 
         # ヘッダー
-        hdr = tk.Frame(shell, bg=PRIMARY, padx=28, pady=24)
+        hdr = tk.Frame(shell, bg=PRIMARY, padx=28, pady=16)
         hdr.pack(fill="x")
         tk.Label(hdr, text="🔒  画像・動画かくしツール",
                  font=("Helvetica", 22, "bold"),
@@ -225,21 +227,24 @@ class MaskApp:
                  font=("Helvetica", 12),
                  bg=PRIMARY, fg="#B2F5EE").pack(anchor="w", pady=(6, 0))
 
-        # ── 横長3カラムレイアウト ──
+        # ── 手順の流れに沿ったレイアウト ──
+        #   上: ①ファイル選択（開始）／中: ②顔・③手動範囲（設定）/
+        #   下: ④確認して書き出す（アクションバー＝完了）
         body = tk.Frame(shell, bg=BG, padx=20, pady=18)
         body.pack(fill="both", expand=True)
-        for _i in range(3):
-            body.grid_columnconfigure(_i, weight=1, uniform="col")
-        body.grid_rowconfigure(0, weight=1)
-        col_left  = tk.Frame(body, bg=BG)
-        col_mid   = tk.Frame(body, bg=BG)
-        col_right = tk.Frame(body, bg=BG)
-        col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        col_mid.grid(row=0, column=1, sticky="nsew", padx=10)
-        col_right.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
+        body.grid_columnconfigure(0, weight=1, uniform="col")
+        body.grid_columnconfigure(1, weight=1, uniform="col")
+        body.grid_rowconfigure(1, weight=1)  # 設定段を伸縮させる
 
-        # ── 左カラム STEP 1: ファイルをえらぶ ──
-        s1 = self._card(col_left, "1", "ファイルをえらぶ")
+        top_row = tk.Frame(body, bg=BG)
+        top_row.grid(row=0, column=0, columnspan=2, sticky="ew")
+        mid_left = tk.Frame(body, bg=BG)
+        mid_left.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        mid_right = tk.Frame(body, bg=BG)
+        mid_right.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
+
+        # ── STEP 1: ファイルをえらぶ（最上部・全幅） ──
+        s1 = self._card(top_row, "1", "ファイルをえらぶ")
 
         dz = tk.Frame(s1, bg=PRIMARY_LT,
                       highlightbackground=PRIMARY, highlightthickness=2,
@@ -247,10 +252,10 @@ class MaskApp:
         dz.pack(fill="x", pady=(4, 0))
         dz_lbl = tk.Label(dz, text="📂  クリックしてファイルをえらぶ",
                           font=F_BIG, bg=PRIMARY_LT, fg=PRIMARY,
-                          pady=20, cursor="hand2")
+                          pady=12, cursor="hand2")
         dz_lbl.pack()
 
-        def _dz_enter(_): dz.config(bg="#D3EEEB"); dz_lbl.config(bg="#D3EEEB")
+        def _dz_enter(_): dz.config(bg=SURFACE_ALT); dz_lbl.config(bg=SURFACE_ALT)
         def _dz_leave(_): dz.config(bg=PRIMARY_LT); dz_lbl.config(bg=PRIMARY_LT)
         def _dz_click(_): self.pick_inputs()
         for w in (dz, dz_lbl):
@@ -262,8 +267,8 @@ class MaskApp:
                                    font=F_MID, bg=SURFACE, fg=TEXT_MUTED)
         self.file_label.pack(anchor="w", pady=(12, 0))
 
-        # ── 中央カラム STEP 2: 顔をかくす ──
-        s2 = self._card(col_mid, "2", "顔をかくす")
+        # ── STEP 2: 顔をかくす（中段・左） ──
+        s2 = self._card(mid_left, "2", "顔をかくす")
 
         # 顔チェック
         self.faces_var = tk.BooleanVar(value=True)
@@ -351,8 +356,8 @@ class MaskApp:
         self.mode_var.trace_add("write", lambda *_: self._toggle_overlay_row())
         self._toggle_overlay_row()
 
-        # ── 右カラム STEP 3: 手動で範囲をかくす ──
-        s3 = self._card(col_right, "3", "手動で範囲をかくす")
+        # ── STEP 3: 手動で範囲をかくす（中段・右） ──
+        s3 = self._card(mid_right, "3", "手動で範囲をかくす")
 
         # 手動範囲セクション
         tk.Label(s3, text="手動で範囲を指定する",
@@ -402,51 +407,6 @@ class MaskApp:
         )
         self._track_cb.pack(side="left")
 
-        # ── 左カラム STEP 4: 確認して書き出す ──
-        s4 = self._card(col_left, "4", "確認して書き出す")
-
-        # 保存先フォルダ行
-        out_folder_row = tk.Frame(s4, bg=SURFACE)
-        out_folder_row.pack(fill="x", pady=(0, 4))
-        tk.Label(out_folder_row, text="保存先フォルダ", font=F_SMALL,
-                 bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").pack(side="left")
-        self._out_folder_var = tk.StringVar(value="")
-        out_folder_entry = tk.Entry(out_folder_row, textvariable=self._out_folder_var,
-                                    font=F_SMALL, fg=TEXT, bg=SURFACE_ALT,
-                                    relief="flat", bd=1,
-                                    highlightbackground=BORDER, highlightthickness=1)
-        out_folder_entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        self._btn(out_folder_row, "変更", self._pick_out_folder,
-                  ("Helvetica", 11), "secondary").pack(side="left")
-        tk.Label(s4, text="空欄のときは入力ファイルと同じフォルダに保存します",
-                 font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED,
-                 wraplength=330, justify="left").pack(anchor="w", pady=(0, 6))
-
-        # ファイル名行
-        out_name_row = tk.Frame(s4, bg=SURFACE)
-        out_name_row.pack(fill="x", pady=(0, 4))
-        tk.Label(out_name_row, text="ファイル名", font=F_SMALL,
-                 bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").pack(side="left")
-        self._out_name_var = tk.StringVar(value="")
-        self._out_name_entry = tk.Entry(out_name_row, textvariable=self._out_name_var,
-                                        font=F_SMALL, fg=TEXT, bg=SURFACE_ALT,
-                                        relief="flat", bd=1,
-                                        highlightbackground=BORDER, highlightthickness=1)
-        self._out_name_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
-        self._out_name_hint = tk.Label(s4, text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）",
-                                       font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED,
-                                       wraplength=330, justify="left")
-        self._out_name_hint.pack(anchor="w", pady=(0, 10))
-
-        btn_row = tk.Frame(s4, bg=SURFACE)
-        btn_row.pack(fill="x")
-        self.preview_btn = self._btn(btn_row, "👀  仕上がりをプレビュー",
-                                     self.open_finish_preview, F_BIG, "secondary")
-        self.preview_btn.pack(fill="x", pady=(0, 8))
-        self.start_btn = self._btn(btn_row, "🚀  書き出す",
-                                   self.on_run, F_BIG, "primary")
-        self.start_btn.pack(fill="x")
-
         # 設定の trace を登録して自動保存
         for var in (self.faces_var, self.score_var, self.margin_var,
                     self.mode_var, self.manual_color_var, self.manual_design_var,
@@ -454,6 +414,60 @@ class MaskApp:
             var.trace_add("write", lambda *_: self._save_settings())
 
         self._load_settings()
+
+    # ── STEP 4: アクションバー（最下部に常設） ────────────
+
+    def _build_actionbar(self):
+        F_BIG, F_MID, F_SMALL = FONT_TITLE, FONT_BODY, FONT_LABEL
+        wrap = tk.Frame(self.root, bg=BG, padx=20)
+        wrap.pack(side="bottom", fill="x", pady=(0, 4))
+        s4 = self._card(wrap, "4", "確認して書き出す")
+
+        bar = tk.Frame(s4, bg=SURFACE)
+        bar.pack(fill="x")
+        bar.grid_columnconfigure(0, weight=1)   # 左: 保存設定（伸縮）
+        bar.grid_columnconfigure(1, weight=0)   # 右: アクション
+
+        # 左: 保存先・ファイル名
+        fields = tk.Frame(bar, bg=SURFACE)
+        fields.grid(row=0, column=0, sticky="ew", padx=(0, 24))
+        fields.grid_columnconfigure(1, weight=1)
+
+        tk.Label(fields, text="保存先フォルダ", font=F_SMALL,
+                 bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").grid(row=0, column=0, sticky="w")
+        self._out_folder_var = tk.StringVar(value="")
+        out_folder_entry = tk.Entry(fields, textvariable=self._out_folder_var,
+                                    font=F_SMALL, fg=TEXT, bg=SURFACE_ALT,
+                                    relief="flat", bd=1,
+                                    highlightbackground=BORDER, highlightthickness=1)
+        out_folder_entry.grid(row=0, column=1, sticky="ew", padx=(6, 6))
+        self._btn(fields, "変更", self._pick_out_folder,
+                  FONT_LABEL, "secondary").grid(row=0, column=2)
+        tk.Label(fields, text="空欄のときは入力ファイルと同じフォルダに保存します",
+                 font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED,
+                 anchor="w").grid(row=1, column=1, columnspan=2, sticky="w", pady=(2, 8))
+
+        tk.Label(fields, text="ファイル名", font=F_SMALL,
+                 bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").grid(row=2, column=0, sticky="w")
+        self._out_name_var = tk.StringVar(value="")
+        self._out_name_entry = tk.Entry(fields, textvariable=self._out_name_var,
+                                        font=F_SMALL, fg=TEXT, bg=SURFACE_ALT,
+                                        relief="flat", bd=1,
+                                        highlightbackground=BORDER, highlightthickness=1)
+        self._out_name_entry.grid(row=2, column=1, columnspan=2, sticky="ew", padx=(6, 0))
+        self._out_name_hint = tk.Label(fields, text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）",
+                                       font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED, anchor="w")
+        self._out_name_hint.grid(row=3, column=1, columnspan=2, sticky="w", pady=(2, 0))
+
+        # 右: プレビュー → 書き出す（視線の終点を右下に）
+        actions = tk.Frame(bar, bg=SURFACE)
+        actions.grid(row=0, column=1, sticky="e")
+        self.preview_btn = self._btn(actions, "👀  仕上がりをプレビュー",
+                                     self.open_finish_preview, F_MID, "secondary")
+        self.preview_btn.pack(side="left", padx=(0, 10))
+        self.start_btn = self._btn(actions, "🚀  書き出す",
+                                   self.on_run, F_BIG, "primary")
+        self.start_btn.pack(side="left")
 
     # ── ステータスバー ────────────────────────────────────
 
@@ -474,16 +488,16 @@ class MaskApp:
     def _card(self, parent, number, title):
         """左アクセントバー＋ドロップシャドウ風カード"""
         shadow = tk.Frame(parent, bg=SHADOW_C)
-        shadow.pack(fill="x", pady=(0, 16))
+        shadow.pack(fill="x", pady=(0, 12))
         inner = tk.Frame(shadow, bg=SURFACE)
         inner.pack(fill="x", padx=(0, 2), pady=(0, 2))
         accent = tk.Frame(inner, bg=PRIMARY, width=5)
         accent.pack(side="left", fill="y")
-        body = tk.Frame(inner, bg=SURFACE, padx=20, pady=18)
+        body = tk.Frame(inner, bg=SURFACE, padx=20, pady=14)
         body.pack(side="left", fill="both", expand=True)
 
         hdr = tk.Frame(body, bg=SURFACE)
-        hdr.pack(fill="x", pady=(0, 14))
+        hdr.pack(fill="x", pady=(0, 10))
         tk.Label(hdr, text=f" {number} ",
                  font=("Helvetica", 11, "bold"),
                  bg=PRIMARY, fg="white", padx=4, pady=3).pack(side="left")
@@ -498,7 +512,7 @@ class MaskApp:
                         bg=PRIMARY, fg="white", active_bg=PRIMARY_DK,
                         padx=16, pady=12)
         return _Btn(parent, text=text, command=command, font=font,
-                    bg=PRIMARY_LT, fg=PRIMARY, active_bg="#CCE9E6",
+                    bg=PRIMARY_LT, fg=PRIMARY, active_bg=BORDER,
                     padx=16, pady=12)
 
     def _slider_row(self, parent, label,
