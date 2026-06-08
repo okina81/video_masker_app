@@ -5,3 +5,4 @@ imageio-ffmpeg
 onnxruntime
 insightface
 certifi
+pytesseract

@@ -370,6 +370,24 @@ class MaskApp:
         )
         self._track_cb.pack(side="left")
 
+        ttk.Separator(s2).pack(fill="x", pady=14)
+
+        # 文字（テキスト）の自動マスク
+        tk.Label(s2, text="文字（個人情報）を自動でかくす",
+                 font=("Helvetica", 13, "bold"), bg=SURFACE, fg=TEXT).pack(anchor="w")
+        text_row = tk.Frame(s2, bg=SURFACE)
+        text_row.pack(anchor="w", pady=(6, 0))
+        self.text_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            text_row, text="画面の文字を検出してかくす",
+            font=F_MID, variable=self.text_var,
+            bg=SURFACE, fg=TEXT,
+            activebackground=SURFACE, selectcolor=SURFACE,
+            cursor="hand2",
+        ).pack(side="left")
+        tk.Label(s2, text="※ Tesseract（文字認識エンジン）が必要です。未導入のときは無視されます。",
+                 font=("Helvetica", 10), bg=SURFACE, fg=TEXT_MUTED).pack(anchor="w", pady=(2, 0))
+
         # ── STEP 3: 確認して書き出す ──
         s3 = self._card(content, "3", "確認して書き出す")
 
@@ -427,7 +445,7 @@ class MaskApp:
         # 設定の trace を登録して自動保存
         for var in (self.faces_var, self.score_var, self.margin_var,
                     self.mode_var, self.manual_color_var, self.manual_design_var,
-                    self.track_var, self._overlay_path_var):
+                    self.track_var, self._overlay_path_var, self.text_var):
             var.trace_add("write", lambda *_: self._save_settings())
 
         self._load_settings()
@@ -724,6 +742,7 @@ class MaskApp:
             face_margin=float(self.margin_var.get()),
             use_scrfd=self.scrfd_var.get(),
             overlay_path=self._overlay_path_var.get() or None,
+            mask_text=self.text_var.get(),
         )
 
     def open_finish_preview(self):
@@ -899,6 +918,7 @@ class MaskApp:
                 "manual_design": self.manual_design_var.get(),
                 "track":         self.track_var.get(),
                 "overlay_path":  self._overlay_path_var.get(),
+                "mask_text":     self.text_var.get(),
             }
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -933,6 +953,8 @@ class MaskApp:
             if data.get("overlay_path"):
                 self._overlay_path_var.set(data["overlay_path"])
                 self._update_overlay_label()
+            if "mask_text" in data:
+                self.text_var.set(data["mask_text"])
             self._toggle_overlay_row()
         except Exception:
             pass
