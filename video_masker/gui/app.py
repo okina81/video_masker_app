@@ -5,6 +5,7 @@ import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from video_masker.gui.face_gallery import FaceGalleryDialog
 from video_masker.gui.preview import FinishPreview
 from video_masker.gui.roi_selector import RoiSelector
 from video_masker.masking import MANUAL_COLORS, make_manual_masker
@@ -168,6 +169,7 @@ class MaskApp:
         self.media_type   = None
         self.manual_boxes = []
         self._manual_boxes_per_file: dict = {}
+        self._person_clusters = None  # 人物選択の結果 [{centroid, enabled}]
         self._stop_event  = threading.Event()
         self._proc_start  = 0.0
 
@@ -293,6 +295,15 @@ class MaskApp:
             font=("Helvetica", 10),
             bg=SURFACE, fg=TEXT_MUTED,
         ).pack(side="left", padx=(4, 0))
+
+        # 人物ごとにマスク ON/OFF（顔一覧）
+        person_row = tk.Frame(self.face_settings_frame, bg=SURFACE)
+        person_row.pack(fill="x", pady=(0, 6))
+        self._btn(person_row, "👥  顔を一覧で確認（人物ごとに選ぶ）",
+                  self.open_face_gallery, ("Helvetica", 12), "secondary").pack(side="left")
+        self._person_label = tk.Label(person_row, text="全員をかくします",
+                                      font=("Helvetica", 10), bg=SURFACE, fg=TEXT_MUTED)
+        self._person_label.pack(side="left", padx=(10, 0))
 
         # かくし方トグル
         mode_sec = tk.Frame(self.face_settings_frame, bg=SURFACE)
@@ -569,6 +580,8 @@ class MaskApp:
         self.manual_boxes = []
         self._manual_boxes_per_file = {}
         self.manual_label.config(text="範囲: なし", fg=TEXT_MUTED)
+        self._person_clusters = None
+        self._update_person_label()
 
         if len(valid) == 1:
             icon = "🖼" if self.media_type == "image" else "🎬"
@@ -686,6 +699,31 @@ class MaskApp:
                     fg=PRIMARY if count else TEXT_MUTED,
                 )
 
+    def open_face_gallery(self):
+        if not self.input_path or not os.path.exists(self.input_path):
+            messagebox.showinfo("おしらせ",
+                                "さきに『ファイルをえらぶ』からファイルを選んでください。")
+            return
+        dialog = FaceGalleryDialog(self.root, self.input_path,
+                                   score=float(self.score_var.get()))
+        self.root.wait_window(dialog)
+        if dialog.result is not None:
+            self._person_clusters = dialog.result
+            self._update_person_label()
+
+    def _update_person_label(self):
+        clusters = self._person_clusters
+        if not clusters:
+            self._person_label.config(text="全員をかくします", fg=TEXT_MUTED)
+            return
+        off = sum(1 for c in clusters if not c["enabled"])
+        if off:
+            self._person_label.config(
+                text=f"{len(clusters)}人中 {off}人はかくしません", fg=PRIMARY)
+        else:
+            self._person_label.config(text=f"{len(clusters)}人全員をかくします",
+                                      fg=TEXT_MUTED)
+
     def set_status(self, message):
         self.status.config(text=message)
 
@@ -731,6 +769,10 @@ class MaskApp:
             boxes = list(self._manual_boxes_per_file[input_path])
         else:
             boxes = list(self.manual_boxes)
+        person_centroids = person_enabled = None
+        if self._person_clusters:
+            person_centroids = [c["centroid"] for c in self._person_clusters]
+            person_enabled = [bool(c["enabled"]) for c in self._person_clusters]
         return dict(
             input_path=resolved_path,
             mode=self.mode_var.get(),
@@ -743,6 +785,8 @@ class MaskApp:
             use_scrfd=self.scrfd_var.get(),
             overlay_path=self._overlay_path_var.get() or None,
             mask_text=self.text_var.get(),
+            person_centroids=person_centroids,
+            person_enabled=person_enabled,
         )
 
     def open_finish_preview(self):
