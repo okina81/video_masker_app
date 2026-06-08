@@ -12,6 +12,9 @@
 Tesseract / pytesseract が無い環境では検出が空になり、安全に無効化される。
 """
 
+import os
+import shutil
+
 import cv2
 import numpy as np
 
@@ -24,11 +27,35 @@ from video_masker.tracking import (
 )
 
 
+# PATH に tesseract が無い Windows 向けの既定インストール先候補
+_WINDOWS_TESSERACT_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+]
+
+
+def _ensure_tesseract_cmd():
+    """PATH に tesseract が無くても既定のインストール先を探して設定する。"""
+    try:
+        import pytesseract
+    except Exception:
+        return
+    # 既に解決できるコマンドならそのまま使う
+    if shutil.which(pytesseract.pytesseract.tesseract_cmd):
+        return
+    for path in _WINDOWS_TESSERACT_PATHS:
+        if path and os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            return
+
+
 def is_ocr_available():
     """pytesseract と Tesseract 本体が使えるかどうかを返す。"""
     try:
         import pytesseract
 
+        _ensure_tesseract_cmd()
         pytesseract.get_tesseract_version()
         return True
     except Exception:
@@ -46,6 +73,7 @@ def detect_text_boxes(frame, min_conf=45, lang="jpn+eng"):
     except Exception:
         return []
 
+    _ensure_tesseract_cmd()
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     try:
         data = pytesseract.image_to_data(rgb, lang=lang, output_type=Output.DICT)
