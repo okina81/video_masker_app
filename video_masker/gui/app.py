@@ -302,8 +302,23 @@ class MaskApp:
         self.mode_var = tk.StringVar(value="mosaic")
         seg = tk.Frame(mode_sec, bg=BORDER, padx=1, pady=1)
         seg.pack(anchor="w", pady=(6, 0))
-        for lbl, val in [("モザイク", "mosaic"), ("ぼかし", "blur"), ("黒塗り", "fill")]:
+        for lbl, val in [("モザイク", "mosaic"), ("ぼかし", "blur"),
+                         ("黒塗り", "fill"), ("キャラ", "overlay")]:
             _ToggleBtn(seg, lbl, val, self.mode_var).pack(side="left", padx=1, pady=0)
+
+        # キャラ画像オーバーレイ用の画像選択（mode=overlay のときのみ表示）
+        default_overlay = os.path.join(os.getcwd(), "IMG_4388.PNG")
+        self._overlay_path_var = tk.StringVar(
+            value=default_overlay if os.path.exists(default_overlay) else "")
+        self._overlay_row = tk.Frame(mode_sec, bg=SURFACE)
+        self._btn(self._overlay_row, "🖼  キャラ画像をえらぶ",
+                  self._pick_overlay_image, F_SMALL, "secondary").pack(side="left")
+        self._overlay_label = tk.Label(self._overlay_row, font=("Helvetica", 10),
+                                       bg=SURFACE, fg=TEXT_MUTED)
+        self._overlay_label.pack(side="left", padx=(10, 0))
+        self._update_overlay_label()
+        self.mode_var.trace_add("write", lambda *_: self._toggle_overlay_row())
+        self._toggle_overlay_row()
 
         ttk.Separator(s2).pack(fill="x", pady=14)
 
@@ -412,7 +427,7 @@ class MaskApp:
         # 設定の trace を登録して自動保存
         for var in (self.faces_var, self.score_var, self.margin_var,
                     self.mode_var, self.manual_color_var, self.manual_design_var,
-                    self.track_var):
+                    self.track_var, self._overlay_path_var):
             var.trace_add("write", lambda *_: self._save_settings())
 
         self._load_settings()
@@ -593,6 +608,29 @@ class MaskApp:
         if folder:
             self._out_folder_var.set(folder)
 
+    def _pick_overlay_image(self):
+        path = filedialog.askopenfilename(
+            title="キャラ画像（透過PNG推奨）をえらんでください",
+            filetypes=[("画像ファイル", "*.png *.webp *.jpg *.jpeg *.bmp"),
+                       ("すべてのファイル", "*.*")],
+        )
+        if path:
+            self._overlay_path_var.set(path)
+            self._update_overlay_label()
+
+    def _update_overlay_label(self):
+        path = self._overlay_path_var.get()
+        if path and os.path.exists(path):
+            self._overlay_label.config(text=os.path.basename(path), fg=PRIMARY)
+        else:
+            self._overlay_label.config(text="画像が未選択です", fg=TEXT_MUTED)
+
+    def _toggle_overlay_row(self):
+        if self.mode_var.get() == "overlay":
+            self._overlay_row.pack(fill="x", pady=(8, 0))
+        else:
+            self._overlay_row.pack_forget()
+
     def open_selector(self):
         if not self.input_path or not os.path.exists(self.input_path):
             messagebox.showinfo("おしらせ",
@@ -685,6 +723,7 @@ class MaskApp:
             score=float(self.score_var.get()),
             face_margin=float(self.margin_var.get()),
             use_scrfd=self.scrfd_var.get(),
+            overlay_path=self._overlay_path_var.get() or None,
         )
 
     def open_finish_preview(self):
@@ -859,6 +898,7 @@ class MaskApp:
                 "manual_color":  self.manual_color_var.get(),
                 "manual_design": self.manual_design_var.get(),
                 "track":         self.track_var.get(),
+                "overlay_path":  self._overlay_path_var.get(),
             }
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -890,5 +930,9 @@ class MaskApp:
                 self.track_var.set(data["track"])
             if "use_scrfd" in data:
                 self.scrfd_var.set(data["use_scrfd"])
+            if data.get("overlay_path"):
+                self._overlay_path_var.set(data["overlay_path"])
+                self._update_overlay_label()
+            self._toggle_overlay_row()
         except Exception:
             pass

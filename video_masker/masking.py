@@ -75,6 +75,44 @@ def apply_check(roi, color_bgr, grid=16):
     return result
 
 
+def apply_overlay(roi, overlay_bgra, base="blur"):
+    """キャラクター画像（透過PNG）を範囲に重ねる。
+
+    透過部分から元画像（顔など）が見えないよう、まず下地を隠してから
+    アスペクト比を保ったキャラ画像を中央に合成する。
+    overlay_bgra が None のときは下地処理のみ行う。
+    """
+    h, w = roi.shape[:2]
+    if h == 0 or w == 0:
+        return roi
+
+    # 下地: 透過部分の漏れ防止のため元画像をぼかす／モザイク化する
+    result = (apply_mosaic(roi) if base == "mosaic" else apply_blur(roi)).copy()
+    if overlay_bgra is None:
+        return result
+
+    oh, ow = overlay_bgra.shape[:2]
+    if oh == 0 or ow == 0:
+        return result
+
+    # contain: アスペクト比を保って枠内に収める
+    scale = min(w / ow, h / oh)
+    nw, nh = max(1, int(round(ow * scale))), max(1, int(round(oh * scale)))
+    resized = cv2.resize(overlay_bgra, (nw, nh), interpolation=cv2.INTER_AREA)
+    ox, oy = (w - nw) // 2, (h - nh) // 2
+
+    rgb = resized[:, :, :3].astype(np.float32)
+    alpha = resized[:, :, 3:4].astype(np.float32) / 255.0
+    region = result[oy:oy + nh, ox:ox + nw].astype(np.float32)
+    blended = rgb * alpha + region * (1 - alpha)
+    result[oy:oy + nh, ox:ox + nw] = blended.astype(np.uint8)
+    return result
+
+
+def make_overlay_masker(overlay_bgra, base="blur"):
+    return lambda roi: apply_overlay(roi, overlay_bgra, base)
+
+
 MASKERS = {"mosaic": apply_mosaic, "blur": apply_blur, "fill": apply_fill}
 
 MANUAL_COLORS = {

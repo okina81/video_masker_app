@@ -7,7 +7,7 @@ from PIL import Image, ImageTk
 
 from video_masker.media import get_media_type, read_image
 from video_masker.model import ModelPreparationError
-from video_masker.processing import build_track_items, mask_frame
+from video_masker.processing import build_face_masker, build_track_items, mask_frame
 
 
 def _fmt_time(frame_idx, fps):
@@ -40,6 +40,10 @@ class FinishPreview(tk.Toplevel):
 
         if self._all_paths and input_path in self._manual_boxes_per_file:
             self.params["manual_boxes"] = self._manual_boxes_per_file[input_path]
+
+        # キャラオーバーレイ画像は1回だけ読み込んで使い回す
+        self.face_masker_fn = build_face_masker(
+            self.params["mode"], self.params.get("overlay_path"))
 
         self.track_items = self.make_track_items()
 
@@ -183,6 +187,7 @@ class FinishPreview(tk.Toplevel):
                 face_detector=self.face_detector,
                 face_margin=self.params.get("face_margin", 0.0),
                 scrfd_detector=self.params.get("scrfd_detector"),
+                face_masker_fn=self.face_masker_fn,
             )
             return True
         except ModelPreparationError as exc:

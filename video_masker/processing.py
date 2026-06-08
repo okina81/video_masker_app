@@ -4,10 +4,21 @@ import tempfile
 
 import cv2
 
-from video_masker.masking import MASKERS, make_manual_masker, mask_region
-from video_masker.media import read_image, write_image
+from video_masker.masking import MASKERS, make_manual_masker, make_overlay_masker, mask_region
+from video_masker.media import load_overlay_image, read_image, write_image
 from video_masker.model import MODEL_PATH, create_scrfd_detector, ensure_model
 from video_masker.tracking import TrackedItem
+
+
+def build_face_masker(mode, overlay_path=None, overlay_base="blur"):
+    """顔マスク用の masker 関数を返す。
+
+    mode="overlay" のときはキャラクター画像オーバーレイ、それ以外は
+    MASKERS（モザイク／ぼかし／黒塗り）を返す。画像読み込みは1回だけ。
+    """
+    if mode == "overlay":
+        return make_overlay_masker(load_overlay_image(overlay_path), overlay_base)
+    return MASKERS[mode]
 
 
 def get_ffmpeg_exe():
@@ -112,9 +123,10 @@ def mask_frame(
     face_detector=None,
     face_margin=0.0,
     scrfd_detector=None,
+    face_masker_fn=None,
     log_cb=None,
 ):
-    masker = MASKERS[mode]
+    masker = face_masker_fn if face_masker_fn is not None else MASKERS[mode]
     if manual_masker_fn is None:
         manual_masker_fn = _default_manual_masker
     if use_faces:
@@ -136,11 +148,12 @@ def process_video(
     track=False,
     face_margin=0.0,
     use_scrfd=False,
+    overlay_path=None,
     progress_cb=None,
     log_cb=None,
     stop_event=None,
 ):
-    masker = MASKERS[mode]
+    masker = build_face_masker(mode, overlay_path)
     if manual_masker_fn is None:
         manual_masker_fn = _default_manual_masker
     track_items = build_track_items(manual_boxes) if track else []
@@ -244,10 +257,11 @@ def process_image(
     manual_masker_fn=None,
     face_margin=0.0,
     use_scrfd=False,
+    overlay_path=None,
     progress_cb=None,
     log_cb=None,
 ):
-    masker = MASKERS[mode]
+    masker = build_face_masker(mode, overlay_path)
     if manual_masker_fn is None:
         manual_masker_fn = _default_manual_masker
     image = read_image(input_path)
