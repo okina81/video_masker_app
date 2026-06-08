@@ -15,5 +15,6 @@ __pycache__/
 *.tif
 *.tiff
 video_masker_app.zip
+*.log
 
 !face_detection_yunet_2023mar.onnx
