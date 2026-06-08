@@ -8,13 +8,7 @@ from video_masker.masking import MASKERS, make_manual_masker, make_overlay_maske
 from video_masker.media import load_overlay_image, read_image, write_image
 from video_masker.model import MODEL_PATH, create_scrfd_detector, ensure_model
 from video_masker.motion import estimate_camera_motion, to_gray
-from video_masker.text_masking import TextMaskPipeline
 from video_masker.tracking import TrackedItem
-
-
-def _text_masker_for(mode):
-    """テキスト用 masker。キャラオーバーレイ時は塗りつぶしにフォールバック。"""
-    return MASKERS.get(mode, MASKERS["fill"])
 
 
 def build_face_masker(mode, overlay_path=None, overlay_base="blur"):
@@ -159,7 +153,6 @@ def mask_frame(
     face_margin=0.0,
     scrfd_detector=None,
     face_masker_fn=None,
-    text_pipeline=None,
     log_cb=None,
 ):
     masker = face_masker_fn if face_masker_fn is not None else MASKERS[mode]
@@ -170,10 +163,6 @@ def mask_frame(
             face_detector = create_face_detector(score, log_cb)
         mask_faces(frame, face_detector, masker, face_margin, scrfd_detector)
     mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track, track_items)
-    if text_pipeline is not None:
-        text_masker = _text_masker_for(mode)
-        for tbox in text_pipeline.process(frame, frame_idx):
-            mask_region(frame, tbox, text_masker)
     return face_detector
 
 
@@ -189,10 +178,6 @@ def process_video(
     face_margin=0.0,
     use_scrfd=False,
     overlay_path=None,
-    mask_text=False,
-    ocr_interval=15,
-    ocr_min_conf=45,
-    ocr_lang="jpn+eng",
     person_centroids=None,
     person_enabled=None,
     progress_cb=None,
@@ -203,14 +188,6 @@ def process_video(
     if manual_masker_fn is None:
         manual_masker_fn = _default_manual_masker
     track_items = build_track_items(manual_boxes) if track else []
-
-    text_pipeline = None
-    text_masker = None
-    if mask_text:
-        text_pipeline = TextMaskPipeline(ocr_interval, ocr_min_conf, ocr_lang)
-        text_masker = _text_masker_for(mode)
-        if not text_pipeline.ocr_available and log_cb:
-            log_cb("文字検出（Tesseract）が見つからないため、テキストのかくしは行いません。")
 
     cap = cv2.VideoCapture(input_path)
     cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
@@ -283,9 +260,6 @@ def process_video(
                 mask_faces(frame, face_detector, masker, face_margin, scrfd_detector)
             mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn,
                                 track, track_items, camera_motion)
-            if text_pipeline is not None:
-                for tbox in text_pipeline.process(frame, frame_idx):
-                    mask_region(frame, tbox, text_masker)
 
             writer.write(frame)
             frame_idx += 1
@@ -339,9 +313,6 @@ def process_image(
     face_margin=0.0,
     use_scrfd=False,
     overlay_path=None,
-    mask_text=False,
-    ocr_min_conf=45,
-    ocr_lang="jpn+eng",
     person_centroids=None,
     person_enabled=None,
     progress_cb=None,
@@ -370,15 +341,6 @@ def process_image(
 
     for box in manual_boxes:
         mask_region(image, box[:4], manual_masker_fn)
-
-    if mask_text:
-        pipeline = TextMaskPipeline(min_conf=ocr_min_conf, lang=ocr_lang)
-        if pipeline.ocr_available:
-            text_masker = _text_masker_for(mode)
-            for tbox in pipeline.detect_single(image):
-                mask_region(image, tbox, text_masker)
-        elif log_cb:
-            log_cb("文字検出（Tesseract）が見つからないため、テキストのかくしは行いません。")
 
     write_image(output_path, image)
     if progress_cb:

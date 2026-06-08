@@ -5,11 +5,6 @@ import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-try:
-    import sv_ttk
-except Exception:  # sv_ttk が無くても素のテーマで動く
-    sv_ttk = None
-
 from video_masker.gui.face_gallery import FaceGalleryDialog
 from video_masker.gui.preview import FinishPreview
 from video_masker.gui.roi_selector import RoiSelector
@@ -20,28 +15,25 @@ from video_masker.processing import process_image, process_video
 from video_masker.system import open_folder
 
 
-# ── カラーパレット（ococブランドカラー準拠・一元管理） ─────
-COLORS = {
-    "bg":         "#0d1b3e",    # ネイビー（ウィンドウ背景）
-    "surface":    "#162248",    # ミッドナイト（カード・パネル）
-    "surface2":   "#0d1b3e",    # サイドバー・ナビ
-    "accent":     "#00a0e9",    # スカイブルー（ボタン・強調）★ブランドカラー
-    "accent_dim": "#00a0e920",  # アクセント薄め（※アルファ付き。tk色には渡さない）
-    "text":       "#c9d8f0",    # アイスブルー（メインテキスト）
-    "muted":      "#7eb8e8",    # ライトブルー（サブテキスト）
-    "disabled":   "#4a6a8a",    # スレート（無効・ヒント）
-    "border":     "#1e3266",    # ロイヤルブルー（枠線）
-    "danger":     "#f28b82",    # コーラル（エラー・警告）
-    "success":    "#81c995",    # グリーン（成功・完了）
-}
+# ── カラーパレット（coccopelli Light Theme） ───────────────
+BG          = "#f0f7fd"   # スカイミスト     ウィンドウ背景
+SURFACE     = "#ffffff"   # ホワイト         カード・パネル背景
+SURFACE_ALT = "#e8f4fc"   # アイスブルー     サイドバー・交互行
+PRIMARY     = "#00a0e9"   # スカイブルー ★   ボタン・強調（ブランドカラー）
+PRIMARY_LT  = "#e0f3fd"   # フロスト         ホバー・選択背景
+PRIMARY_DK  = "#0082c4"   # ディープスカイ   押下・アクティブ状態
+TEXT        = "#1a3a5c"   # ディープネイビー メインテキスト
+TEXT_MUTED  = "#5a87aa"   # スチールブルー   サブテキスト・ヒント
+BORDER      = "#d0e4f5"   # ペールブルー     枠線・区切り線
+SHADOW_C    = "#b8d4ec"   # ソフトシャドウ   カード影色（_card 左バー）
+SUCCESS     = "#27ae60"   # グリーン         完了・成功
+DANGER      = "#e74c3c"   # レッド           エラー・警告
 
-# ── フォント（一元管理） ───────────────────────────────────
-FONTS = {
-    "title": ("Helvetica Neue", 15, "bold"),
-    "body":  ("Helvetica Neue", 13),
-    "label": ("Helvetica Neue", 11),
-    "mono":  ("Menlo", 12),
-}
+# ── フォント ───────────────────────────────────────────────
+FONT_TITLE  = ("Helvetica", 15, "bold")   # セクションタイトル
+FONT_BODY   = ("Helvetica", 13)           # 本文・ラベル
+FONT_LABEL  = ("Helvetica", 11)           # 小ラベル・ヒント
+FONT_MONO   = ("Menlo", 12)               # パス・数値表示
 
 SETTINGS_PATH = os.path.join(os.path.expanduser("~"), ".video_masker_settings.json")
 
@@ -51,46 +43,126 @@ def _bgr_to_hex(bgr):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-# ── レイアウト補助 ─────────────────────────────────────────
-
-class _Stack:
-    """1カラムに縦積みするための grid ヘルパー（pack を使わない）。"""
-
-    def __init__(self, frame):
-        self.f = frame
-        self.r = 0
-        frame.columnconfigure(0, weight=1)
-
-    def add(self, widget, pady=(0, 8), sticky="ew", padx=0):
-        widget.grid(row=self.r, column=0, sticky=sticky, padx=padx, pady=pady)
-        self.r += 1
-        return widget
-
-
-# ── カラースウォッチ（任意色の表示は Canvas が必要） ────────
+# ── カスタムウィジェット ───────────────────────────────────
 
 class _Swatch(tk.Canvas):
-    SIZE = 28
+    """クリック可能なカラースウォッチ"""
+    SIZE = 26
 
-    def __init__(self, parent, color_name, color_bgr, var):
+    def __init__(self, parent, color_name, color_bgr, var, **kw):
         super().__init__(parent, width=self.SIZE, height=self.SIZE,
-                         highlightthickness=0, bg=COLORS["surface"], cursor="hand2")
+                         highlightthickness=0, cursor="hand2", **kw)
         self.color_name = color_name
-        self.hex_color = _bgr_to_hex(color_bgr)
-        self.var = var
+        self.hex_color  = _bgr_to_hex(color_bgr)
+        self.var        = var
         self._draw()
-        self.bind("<ButtonRelease-1>", lambda _e: self.var.set(self.color_name))
+        self.bind("<ButtonRelease-1>", self._on_click)
         var.trace_add("write", lambda *_: self._draw())
 
     def _draw(self):
         self.delete("all")
-        s = self.SIZE
         selected = self.var.get() == self.color_name
         if selected:
-            self.create_rectangle(1, 1, s - 1, s - 1,
-                                  outline=COLORS["accent"], width=2)
-        self.create_rectangle(5, 5, s - 5, s - 5, fill=self.hex_color,
-                              outline=COLORS["border"])
+            self.create_rectangle(0, 0, self.SIZE, self.SIZE,
+                                  fill=PRIMARY, outline="")
+        self.create_rectangle(3, 3, self.SIZE - 3, self.SIZE - 3,
+                              fill=self.hex_color,
+                              outline=SURFACE if selected else BORDER,
+                              width=2 if selected else 1)
+
+    def _on_click(self, _event):
+        self.var.set(self.color_name)
+
+
+class _ToggleBtn(tk.Label):
+    """セグメントコントロール風トグルボタン"""
+
+    def __init__(self, parent, text, value, var, **kw):
+        super().__init__(parent, text=text, cursor="hand2",
+                         font=("Helvetica", 12), padx=14, pady=7,
+                         relief="flat", **kw)
+        self.value = value
+        self.var   = var
+        self._refresh()
+        self.bind("<ButtonRelease-1>", self._on_click)
+        var.trace_add("write", lambda *_: self._refresh())
+
+    def _refresh(self):
+        if self.var.get() == self.value:
+            self.config(bg=PRIMARY, fg="white")
+        else:
+            self.config(bg=SURFACE_ALT, fg=TEXT_MUTED)
+
+    def _on_click(self, _event):
+        self.var.set(self.value)
+
+
+class _Btn(tk.Label):
+    """bg/fg が Mac でも確実に効くクロスプラットフォームボタン。
+
+    tk.Button は macOS Aqua テーマで bg/fg を無視するため、
+    tk.Label ベースで実装し hover・click をバインドで再現する。
+    """
+
+    def __init__(self, parent, text, command, font,
+                 bg, fg, active_bg, padx=16, pady=10, **kw):
+        super().__init__(parent, text=text, font=font,
+                         bg=bg, fg=fg, padx=padx, pady=pady,
+                         cursor="hand2", **kw)
+        self._bg        = bg
+        self._fg        = fg
+        self._active_bg = active_bg
+        self._command   = command
+        self._enabled   = True
+
+        self.bind("<Enter>",           lambda _: self._on_enter())
+        self.bind("<Leave>",           lambda _: self._on_leave())
+        self.bind("<ButtonRelease-1>", lambda _: self._on_release())
+
+    def _on_enter(self):
+        if self._enabled:
+            tk.Label.config(self, bg=self._active_bg)
+
+    def _on_leave(self):
+        if self._enabled:
+            tk.Label.config(self, bg=self._bg)
+
+    def _on_release(self):
+        if self._enabled:
+            self._on_leave()
+            self._command()
+
+    def config(self, **kw):
+        state = kw.pop("state", None)
+        if state == "disabled":
+            self._enabled = False
+            tk.Label.config(self, fg="#AAAAAA", bg=self._bg)
+        elif state == "normal":
+            self._enabled = True
+            tk.Label.config(self, fg=self._fg, bg=self._bg)
+
+        if "command" in kw:
+            self._command = kw.pop("command")
+        if "activebackground" in kw:
+            self._active_bg = kw.pop("activebackground")
+        kw.pop("activeforeground", None)
+
+        if "bg" in kw:
+            self._bg = kw["bg"]
+            if self._enabled:
+                tk.Label.config(self, bg=self._bg)
+            kw.pop("bg")
+        if "fg" in kw:
+            self._fg = kw["fg"]
+            if self._enabled:
+                tk.Label.config(self, fg=self._fg)
+            kw.pop("fg")
+
+        if kw:
+            tk.Label.config(self, **kw)
+
+    def configure(self, **kw):
+        self.config(**kw)
 
 
 # ── メインアプリ ──────────────────────────────────────────
@@ -109,12 +181,9 @@ class MaskApp:
 
         root.title("画像・動画かくしツール")
         root.geometry("1280x820")
-        root.minsize(1080, 700)
-
-        if sv_ttk is not None:
-            sv_ttk.set_theme("dark")
-        self._init_styles()
-        root.configure(bg=COLORS["bg"])
+        root.minsize(1040, 680)
+        root.configure(bg=BG)
+        root.resizable(True, True)
 
         try:
             root.tk.call("package", "require", "tkdnd")
@@ -123,330 +192,370 @@ class MaskApp:
         except Exception:
             pass
 
+        self._configure_styles()
         self._build_ui()
 
     # ── スタイル設定 ──────────────────────────────────────
 
-    def _init_styles(self):
+    def _configure_styles(self):
         s = ttk.Style()
-        # ベース
-        s.configure(".", background=COLORS["bg"], foreground=COLORS["text"],
-                    font=FONTS["body"], borderwidth=0)
-        s.configure("TButton", font=FONTS["body"])
-        s.configure("Switch.TCheckbutton", font=FONTS["body"])
-        s.configure("Toolbutton", font=FONTS["label"])
-
-        # フレーム
-        s.configure("Bg.TFrame", background=COLORS["bg"])
-        s.configure("Card.TFrame", background=COLORS["surface"])
-        s.configure("Sub.TFrame", background=COLORS["surface"])
-        s.configure("Header.TFrame", background=COLORS["accent"])
-        s.configure("Status.TFrame", background=COLORS["surface"])
-
-        # ラベル（背景は親に合わせて指定）
-        s.configure("Header.TLabel", background=COLORS["accent"],
-                    foreground="#ffffff", font=FONTS["title"])
-        s.configure("HeaderSub.TLabel", background=COLORS["accent"],
-                    foreground="#ece9ff", font=FONTS["label"])
-        s.configure("Badge.TLabel", background=COLORS["accent"],
-                    foreground="#ffffff", font=FONTS["label"])
-        s.configure("CardTitle.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["text"], font=FONTS["title"])
-        s.configure("Section.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["text"], font=("Helvetica Neue", 13, "bold"))
-        s.configure("Body.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["text"], font=FONTS["body"])
-        s.configure("Muted.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["muted"], font=FONTS["label"])
-        s.configure("Hint.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["disabled"], font=FONTS["label"])
-        s.configure("Field.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["muted"], font=FONTS["label"])
-        s.configure("Status.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["text"], font=FONTS["body"])
-        s.configure("Accent.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["accent"], font=FONTS["label"])
-        s.configure("Drop.TLabel", background=COLORS["surface"],
-                    foreground=COLORS["accent"], font=FONTS["title"])
+        s.configure("Mask.Horizontal.TProgressbar",
+                    troughcolor=BORDER, background=PRIMARY, thickness=8)
 
     # ── UI構築 ────────────────────────────────────────────
 
     def _build_ui(self):
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        F_BIG   = FONT_TITLE
+        F_MID   = FONT_BODY
+        F_SMALL = FONT_LABEL
 
-        # ── ヘッダー（全幅）
-        hdr = ttk.Frame(self.root, style="Header.TFrame", padding=(28, 20))
-        hdr.grid(row=0, column=0, sticky="ew")
-        ttk.Label(hdr, text="🔒  画像・動画かくしツール",
-                  style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(hdr, text="顔・手動範囲・文字をまとめてかくす",
-                  style="HeaderSub.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
-
-        # ── 本体（横長3カラム）
-        body = ttk.Frame(self.root, style="Bg.TFrame", padding=(18, 16))
-        body.grid(row=1, column=0, sticky="nsew")
-        for i in range(3):
-            body.columnconfigure(i, weight=1, uniform="col")
-        body.rowconfigure(0, weight=1)
-        col_left  = ttk.Frame(body, style="Bg.TFrame")
-        col_mid   = ttk.Frame(body, style="Bg.TFrame")
-        col_right = ttk.Frame(body, style="Bg.TFrame")
-        col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
-        col_mid.grid(row=0, column=1, sticky="nsew", padx=9)
-        col_right.grid(row=0, column=2, sticky="nsew", padx=(9, 0))
-        for c in (col_left, col_mid, col_right):
-            c.columnconfigure(0, weight=1)
-
-        self._build_file_card(col_left, row=0)
-        self._build_face_card(col_mid)
-        self._build_manual_text_card(col_right)
-        self._build_output_card(col_left, row=1)
-
-        # ── ステータスバー（最下部に常設）
+        # ステータスバー（ウィンドウ最下部に常設）
         self._build_statusbar()
 
-        # 設定の自動保存
-        for var in (self.faces_var, self.score_var, self.margin_var,
-                    self.mode_var, self.manual_color_var, self.manual_design_var,
-                    self.track_var, self._overlay_path_var, self.text_var):
-            var.trace_add("write", lambda *_: self._save_settings())
+        shell = self._scroll_shell(self.root)
 
-        self._load_settings()
+        # ヘッダー
+        hdr = tk.Frame(shell, bg=PRIMARY, padx=28, pady=24)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="🔒  画像・動画かくしツール",
+                 font=("Helvetica", 22, "bold"),
+                 bg=PRIMARY, fg="white").pack(anchor="w")
+        tk.Label(hdr,
+                 text="顔検出・手動範囲・追従・プレビューをひとつの画面で",
+                 font=("Helvetica", 12),
+                 bg=PRIMARY, fg="#B2F5EE").pack(anchor="w", pady=(6, 0))
 
-    # ── 各カード ──────────────────────────────────────────
+        # ── 横長3カラムレイアウト ──
+        body = tk.Frame(shell, bg=BG, padx=20, pady=18)
+        body.pack(fill="both", expand=True)
+        for _i in range(3):
+            body.grid_columnconfigure(_i, weight=1, uniform="col")
+        body.grid_rowconfigure(0, weight=1)
+        col_left  = tk.Frame(body, bg=BG)
+        col_mid   = tk.Frame(body, bg=BG)
+        col_right = tk.Frame(body, bg=BG)
+        col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        col_mid.grid(row=0, column=1, sticky="nsew", padx=10)
+        col_right.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
 
-    def _build_file_card(self, parent, row):
-        body = self._card(parent, "1", "ファイルをえらぶ", row=row)
-        st = _Stack(body)
+        # ── 左カラム STEP 1: ファイルをえらぶ ──
+        s1 = self._card(col_left, "1", "ファイルをえらぶ")
 
-        drop = ttk.Frame(body, style="Card.TFrame", padding=(16, 22))
-        drop.columnconfigure(0, weight=1)
-        dlbl = ttk.Label(drop, text="📂  クリックしてファイルをえらぶ",
-                         style="Drop.TLabel", anchor="center")
-        dlbl.grid(row=0, column=0)
-        for w in (drop, dlbl):
-            w.bind("<ButtonRelease-1>", lambda _e: self.pick_inputs())
-            w.configure(cursor="hand2")
-        st.add(drop)
+        dz = tk.Frame(s1, bg=PRIMARY_LT,
+                      highlightbackground=PRIMARY, highlightthickness=2,
+                      cursor="hand2")
+        dz.pack(fill="x", pady=(4, 0))
+        dz_lbl = tk.Label(dz, text="📂  クリックしてファイルをえらぶ",
+                          font=F_BIG, bg=PRIMARY_LT, fg=PRIMARY,
+                          pady=20, cursor="hand2")
+        dz_lbl.pack()
 
-        self.file_label = ttk.Label(body, text="まだ選んでいません", style="Muted.TLabel")
-        st.add(self.file_label, pady=(12, 0))
+        def _dz_enter(_): dz.config(bg="#D3EEEB"); dz_lbl.config(bg="#D3EEEB")
+        def _dz_leave(_): dz.config(bg=PRIMARY_LT); dz_lbl.config(bg=PRIMARY_LT)
+        def _dz_click(_): self.pick_inputs()
+        for w in (dz, dz_lbl):
+            w.bind("<Enter>", _dz_enter)
+            w.bind("<Leave>", _dz_leave)
+            w.bind("<ButtonRelease-1>", _dz_click)
 
-    def _build_face_card(self, parent):
-        body = self._card(parent, "2", "顔をかくす")
-        st = _Stack(body)
+        self.file_label = tk.Label(s1, text="まだ選んでいません",
+                                   font=F_MID, bg=SURFACE, fg=TEXT_MUTED)
+        self.file_label.pack(anchor="w", pady=(12, 0))
 
+        # ── 中央カラム STEP 2: 顔をかくす ──
+        s2 = self._card(col_mid, "2", "顔をかくす")
+
+        # 顔チェック
         self.faces_var = tk.BooleanVar(value=True)
-        st.add(ttk.Checkbutton(body, text="顔を自動でかくす",
-                               style="Switch.TCheckbutton", variable=self.faces_var,
-                               command=self.toggle_face_settings))
+        face_row = tk.Frame(s2, bg=SURFACE)
+        face_row.pack(fill="x", pady=(0, 8))
+        tk.Checkbutton(face_row, text="顔を自動でかくす",
+                       font=F_MID, variable=self.faces_var,
+                       bg=SURFACE, fg=TEXT,
+                       activebackground=SURFACE, selectcolor=SURFACE,
+                       cursor="hand2",
+                       command=self.toggle_face_settings).pack(side="left")
 
-        # 折りたたみ対象
-        self.face_settings_frame = ttk.Frame(body, style="Sub.TFrame")
-        st.add(self.face_settings_frame)
-        fst = _Stack(self.face_settings_frame)
+        # 顔設定まとめフレーム（折りたたみ対象）
+        self.face_settings_frame = tk.Frame(s2, bg=SURFACE)
+        self.face_settings_frame.pack(fill="x")
 
-        self._slider_row(fst, "顔認識のレベル",
+        # 顔認識レベル
+        self._slider_row(self.face_settings_frame,
+                         "顔認識のレベル",
                          var_attr="score_var", label_attr="score_label",
-                         from_=0.2, to=0.9, default=0.5, cb=self.on_score_change,
+                         from_=0.2, to=0.9, default=0.5,
+                         cb=self.on_score_change,
                          hint="低いほど検出されやすく、高いほど確実な顔だけを検出します。")
-        self._slider_row(fst, "顔の隠す範囲",
+
+        # 顔の隠す範囲
+        self._slider_row(self.face_settings_frame,
+                         "顔の隠す範囲",
                          var_attr="margin_var", label_attr="margin_label",
-                         from_=0.0, to=0.5, default=0.0, cb=self.on_margin_change,
-                         hint="広くすると顔の周囲をより大きく隠します。ずれが気になるときに調整します。")
+                         from_=0.0, to=0.5, default=0.0,
+                         cb=self.on_margin_change,
+                         hint="広くすると顔の周囲をより大きく隠します。ずれが気になる場合に調整してください。")
 
+        # SCRFD フォールバック
+        scrfd_row = tk.Frame(self.face_settings_frame, bg=SURFACE)
+        scrfd_row.pack(fill="x", pady=(0, 0))
         self.scrfd_var = tk.BooleanVar(value=False)
-        fst.add(ttk.Checkbutton(
+        tk.Checkbutton(
+            scrfd_row,
+            text="検出漏れ時に SCRFD で補完する",
+            font=F_MID,
+            variable=self.scrfd_var,
+            bg=SURFACE, fg=TEXT,
+            activebackground=SURFACE, selectcolor=SURFACE,
+            cursor="hand2",
+        ).pack(side="left")
+        tk.Label(
             self.face_settings_frame,
-            text="検出漏れ時に SCRFD で補う（初回のみ約16MB）",
-            style="Switch.TCheckbutton", variable=self.scrfd_var))
+            text="※ 初回のみ約16MBをダウンロードします",
+            font=F_SMALL,
+            bg=SURFACE, fg=TEXT_MUTED,
+        ).pack(anchor="w", pady=(0, 6))
 
-        # 人物ごとのマスク選択
-        prow = ttk.Frame(self.face_settings_frame, style="Sub.TFrame")
-        prow.columnconfigure(1, weight=1)
-        ttk.Button(prow, text="👥  顔を一覧で確認する",
-                   command=self.open_face_gallery).grid(row=0, column=0, sticky="w")
-        self._person_label = ttk.Label(prow, text="全員をかくします", style="Muted.TLabel")
-        self._person_label.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        fst.add(prow)
+        # 人物ごとにマスク ON/OFF（顔一覧）
+        person_row = tk.Frame(self.face_settings_frame, bg=SURFACE)
+        person_row.pack(fill="x", pady=(0, 6))
+        self._btn(person_row, "👥  顔を一覧で確認",
+                  self.open_face_gallery, FONT_BODY, "secondary").pack(side="left")
+        self._person_label = tk.Label(person_row, text="全員をかくします",
+                                      font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED)
+        self._person_label.pack(side="left", padx=(10, 0))
 
-        # かくし方
-        fst.add(ttk.Label(self.face_settings_frame, text="かくし方", style="Field.TLabel"),
-                pady=(4, 2))
+        # かくし方トグル
+        mode_sec = tk.Frame(self.face_settings_frame, bg=SURFACE)
+        mode_sec.pack(fill="x", pady=(0, 10))
+        tk.Label(mode_sec, text="かくし方", font=("Helvetica", 11),
+                 bg=SURFACE, fg=TEXT_MUTED).pack(anchor="w")
         self.mode_var = tk.StringVar(value="mosaic")
-        seg = self._segment(self.face_settings_frame, self.mode_var,
-                            [("モザイク", "mosaic"), ("ぼかし", "blur"),
-                             ("黒塗り", "fill"), ("キャラ", "overlay")])
-        fst.add(seg, sticky="w")
+        seg = tk.Frame(mode_sec, bg=BORDER, padx=1, pady=1)
+        seg.pack(anchor="w", pady=(6, 0))
+        for lbl, val in [("モザイク", "mosaic"), ("ぼかし", "blur"),
+                         ("黒塗り", "fill"), ("ココちゃん", "overlay")]:
+            _ToggleBtn(seg, lbl, val, self.mode_var).pack(side="left", padx=1, pady=0)
 
-        # キャラ画像オーバーレイ選択（mode=overlay のときだけ表示）
+        # キャラ画像オーバーレイ用の画像選択（mode=overlay のときのみ表示）
         default_overlay = os.path.join(os.getcwd(), "IMG_4388.PNG")
         self._overlay_path_var = tk.StringVar(
             value=default_overlay if os.path.exists(default_overlay) else "")
-        self._overlay_row = ttk.Frame(self.face_settings_frame, style="Sub.TFrame")
-        self._overlay_row.columnconfigure(1, weight=1)
-        ttk.Button(self._overlay_row, text="🖼  キャラ画像をえらぶ",
-                   command=self._pick_overlay_image).grid(row=0, column=0, sticky="w")
-        self._overlay_label = ttk.Label(self._overlay_row, text="", style="Muted.TLabel")
-        self._overlay_label.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        fst.add(self._overlay_row, pady=(6, 0))
+        self._overlay_row = tk.Frame(mode_sec, bg=SURFACE)
+        self._btn(self._overlay_row, "🖼  ココちゃん画像をえらぶ",
+                  self._pick_overlay_image, F_SMALL, "secondary").pack(side="left")
+        self._overlay_label = tk.Label(self._overlay_row, font=FONT_LABEL,
+                                       bg=SURFACE, fg=TEXT_MUTED)
+        self._overlay_label.pack(side="left", padx=(10, 0))
         self._update_overlay_label()
         self.mode_var.trace_add("write", lambda *_: self._toggle_overlay_row())
         self._toggle_overlay_row()
 
-    def _build_manual_text_card(self, parent):
-        body = self._card(parent, "3", "手動範囲・文字をかくす")
-        st = _Stack(body)
+        # ── 右カラム STEP 3: 手動で範囲をかくす ──
+        s3 = self._card(col_right, "3", "手動で範囲をかくす")
 
-        st.add(ttk.Label(body, text="手動で範囲を指定する", style="Section.TLabel"))
+        # 手動範囲セクション
+        tk.Label(s3, text="手動で範囲を指定する",
+                 font=("Helvetica", 13, "bold"), bg=SURFACE, fg=TEXT).pack(anchor="w")
 
-        # 色
-        crow = ttk.Frame(body, style="Sub.TFrame")
-        ttk.Label(crow, text="色", style="Field.TLabel").grid(row=0, column=0, padx=(0, 8))
+        # 色スウォッチ
+        crow = tk.Frame(s3, bg=SURFACE)
+        crow.pack(anchor="w", pady=(10, 4))
+        tk.Label(crow, text="色", font=F_SMALL, bg=SURFACE,
+                 fg=TEXT_MUTED, width=5, anchor="w").pack(side="left")
         self.manual_color_var = tk.StringVar(value="黒")
-        for i, (name, bgr) in enumerate(MANUAL_COLORS.items()):
-            _Swatch(crow, name, bgr, self.manual_color_var).grid(
-                row=0, column=i + 1, padx=3)
-        st.add(crow, sticky="w", pady=(10, 4))
+        for name, bgr in MANUAL_COLORS.items():
+            _Swatch(crow, name, bgr, self.manual_color_var,
+                    bg=SURFACE).pack(side="left", padx=3)
 
-        # デザイン
-        drow = ttk.Frame(body, style="Sub.TFrame")
-        ttk.Label(drow, text="デザイン", style="Field.TLabel").grid(
-            row=0, column=0, padx=(0, 8))
+        # デザイントグル
+        drow = tk.Frame(s3, bg=SURFACE)
+        drow.pack(anchor="w", pady=(0, 10))
+        tk.Label(drow, text="デザイン", font=F_SMALL, bg=SURFACE,
+                 fg=TEXT_MUTED, width=7, anchor="w").pack(side="left")
         self.manual_design_var = tk.StringVar(value="ベタ塗り")
-        seg2 = self._segment(drow, self.manual_design_var,
-                             [(n, n) for n in ("ベタ塗り", "斜線", "チェック")])
-        seg2.grid(row=0, column=1, sticky="w")
-        st.add(drow, sticky="w", pady=(0, 10))
+        seg2 = tk.Frame(drow, bg=BORDER, padx=1, pady=1)
+        seg2.pack(side="left")
+        for name in ["ベタ塗り", "斜線", "チェック"]:
+            _ToggleBtn(seg2, name, name, self.manual_design_var).pack(side="left", padx=1)
 
-        # 範囲選択
-        srow = ttk.Frame(body, style="Sub.TFrame")
-        srow.columnconfigure(1, weight=1)
-        ttk.Button(srow, text="✏️  塗る範囲をえらぶ",
-                   command=self.open_selector).grid(row=0, column=0, sticky="w")
-        self.manual_label = ttk.Label(srow, text="範囲: なし", style="Muted.TLabel")
-        self.manual_label.grid(row=0, column=1, sticky="w", padx=(12, 0))
-        st.add(srow, pady=(0, 8))
+        # 範囲選択ボタン
+        sel_row = tk.Frame(s3, bg=SURFACE)
+        sel_row.pack(fill="x", pady=(4, 6))
+        self._btn(sel_row, "✏️  塗る範囲をえらぶ", self.open_selector,
+                  F_MID, "secondary").pack(side="left")
+        self.manual_label = tk.Label(sel_row, text="範囲: なし",
+                                     font=F_MID, bg=SURFACE, fg=TEXT_MUTED)
+        self.manual_label.pack(side="left", padx=14)
 
+        # 追従チェック
         self.track_var = tk.BooleanVar(value=False)
-        self._track_cb = ttk.Checkbutton(
-            body, text="塗った範囲を動くものに追従させる",
-            style="Switch.TCheckbutton", variable=self.track_var)
-        self._track_frame = self._track_cb  # 互換参照
-        st.add(self._track_cb, sticky="w")
+        self._track_frame = tk.Frame(s3, bg=SURFACE)
+        self._track_frame.pack(anchor="w", pady=(2, 0))
+        self._track_cb = tk.Checkbutton(
+            self._track_frame,
+            text="塗った範囲を動くものに追従させる",
+            font=F_MID, variable=self.track_var,
+            bg=SURFACE, fg=TEXT,
+            activebackground=SURFACE, selectcolor=SURFACE,
+            cursor="hand2",
+        )
+        self._track_cb.pack(side="left")
 
-        st.add(ttk.Separator(body), pady=16)
+        # ── 左カラム STEP 4: 確認して書き出す ──
+        s4 = self._card(col_left, "4", "確認して書き出す")
 
-        st.add(ttk.Label(body, text="文字（個人情報）を自動でかくす", style="Section.TLabel"))
-        self.text_var = tk.BooleanVar(value=False)
-        st.add(ttk.Checkbutton(body, text="画面の文字を検出してかくす",
-                               style="Switch.TCheckbutton", variable=self.text_var),
-               sticky="w", pady=(6, 2))
-        st.add(ttk.Label(body,
-                         text="※ Tesseract（文字認識）が必要です。未導入のときは無視されます。",
-                         style="Hint.TLabel", wraplength=360), sticky="w")
-
-    def _build_output_card(self, parent, row):
-        body = self._card(parent, "4", "確認して書き出す", row=row)
-        st = _Stack(body)
-
-        # 保存先フォルダ
-        frow = ttk.Frame(body, style="Sub.TFrame")
-        frow.columnconfigure(1, weight=1)
-        ttk.Label(frow, text="保存先", style="Field.TLabel").grid(row=0, column=0, padx=(0, 8))
+        # 保存先フォルダ行
+        out_folder_row = tk.Frame(s4, bg=SURFACE)
+        out_folder_row.pack(fill="x", pady=(0, 4))
+        tk.Label(out_folder_row, text="保存先フォルダ", font=F_SMALL,
+                 bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").pack(side="left")
         self._out_folder_var = tk.StringVar(value="")
-        ttk.Entry(frow, textvariable=self._out_folder_var).grid(
-            row=0, column=1, sticky="ew", padx=(0, 8))
-        ttk.Button(frow, text="変更", command=self._pick_out_folder).grid(row=0, column=2)
-        st.add(frow)
-        st.add(ttk.Label(body, text="空欄のときは入力ファイルと同じフォルダに保存します",
-                         style="Hint.TLabel"), pady=(0, 8))
+        out_folder_entry = tk.Entry(out_folder_row, textvariable=self._out_folder_var,
+                                    font=F_SMALL, fg=TEXT, bg=SURFACE_ALT,
+                                    relief="flat", bd=1,
+                                    highlightbackground=BORDER, highlightthickness=1)
+        out_folder_entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
+        self._btn(out_folder_row, "変更", self._pick_out_folder,
+                  ("Helvetica", 11), "secondary").pack(side="left")
+        tk.Label(s4, text="空欄のときは入力ファイルと同じフォルダに保存します",
+                 font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED,
+                 wraplength=330, justify="left").pack(anchor="w", pady=(0, 6))
 
-        # ファイル名
-        nrow = ttk.Frame(body, style="Sub.TFrame")
-        nrow.columnconfigure(1, weight=1)
-        ttk.Label(nrow, text="ファイル名", style="Field.TLabel").grid(
-            row=0, column=0, padx=(0, 8))
+        # ファイル名行
+        out_name_row = tk.Frame(s4, bg=SURFACE)
+        out_name_row.pack(fill="x", pady=(0, 4))
+        tk.Label(out_name_row, text="ファイル名", font=F_SMALL,
+                 bg=SURFACE, fg=TEXT_MUTED, width=12, anchor="w").pack(side="left")
         self._out_name_var = tk.StringVar(value="")
-        self._out_name_entry = ttk.Entry(nrow, textvariable=self._out_name_var)
-        self._out_name_entry.grid(row=0, column=1, sticky="ew")
-        st.add(nrow)
-        self._out_name_hint = ttk.Label(
-            body, text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）",
-            style="Hint.TLabel", wraplength=360)
-        st.add(self._out_name_hint, pady=(0, 12))
+        self._out_name_entry = tk.Entry(out_name_row, textvariable=self._out_name_var,
+                                        font=F_SMALL, fg=TEXT, bg=SURFACE_ALT,
+                                        relief="flat", bd=1,
+                                        highlightbackground=BORDER, highlightthickness=1)
+        self._out_name_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self._out_name_hint = tk.Label(s4, text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）",
+                                       font=FONT_LABEL, bg=SURFACE, fg=TEXT_MUTED,
+                                       wraplength=330, justify="left")
+        self._out_name_hint.pack(anchor="w", pady=(0, 10))
 
-        # ボタン
-        brow = ttk.Frame(body, style="Sub.TFrame")
-        brow.columnconfigure(0, weight=1)
-        brow.columnconfigure(1, weight=1)
-        self.preview_btn = ttk.Button(brow, text="👀  仕上がりを確認する",
-                                      command=self.open_finish_preview)
-        self.preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self.start_btn = ttk.Button(brow, text="🚀  書き出す",
-                                    style="Accent.TButton", command=self.on_run)
-        self.start_btn.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-        st.add(brow)
+        btn_row = tk.Frame(s4, bg=SURFACE)
+        btn_row.pack(fill="x")
+        self.preview_btn = self._btn(btn_row, "👀  仕上がりをプレビュー",
+                                     self.open_finish_preview, F_BIG, "secondary")
+        self.preview_btn.pack(fill="x", pady=(0, 8))
+        self.start_btn = self._btn(btn_row, "🚀  書き出す",
+                                   self.on_run, F_BIG, "primary")
+        self.start_btn.pack(fill="x")
+
+        # 設定の trace を登録して自動保存
+        for var in (self.faces_var, self.score_var, self.margin_var,
+                    self.mode_var, self.manual_color_var, self.manual_design_var,
+                    self.track_var, self._overlay_path_var):
+            var.trace_add("write", lambda *_: self._save_settings())
+
+        self._load_settings()
+
+    # ── ステータスバー ────────────────────────────────────
 
     def _build_statusbar(self):
-        bar = ttk.Frame(self.root, style="Status.TFrame", padding=(16, 8))
-        bar.grid(row=2, column=0, sticky="ew")
-        bar.columnconfigure(0, weight=1)
-        self.status = ttk.Label(bar, text="準備できています", style="Status.TLabel")
-        self.status.grid(row=0, column=0, sticky="w")
-        self.progress = ttk.Progressbar(bar, maximum=100, length=240)
-        self.progress.grid(row=0, column=1, sticky="e", padx=(12, 0))
+        bar = tk.Frame(self.root, bg=SURFACE_ALT,
+                       highlightbackground=BORDER, highlightthickness=1,
+                       padx=16, pady=8)
+        bar.pack(side="bottom", fill="x")
+        self.status = tk.Label(bar, text="準備できています",
+                               font=FONT_BODY, bg=SURFACE_ALT, fg=TEXT, anchor="w")
+        self.status.pack(side="left", fill="x", expand=True)
+        self.progress = ttk.Progressbar(bar, maximum=100, length=240,
+                                        style="Mask.Horizontal.TProgressbar")
+        self.progress.pack(side="right", padx=(12, 0))
 
     # ── ウィジェットヘルパー ──────────────────────────────
 
-    def _card(self, parent, number, title, row=0):
-        """番号バッジ付きカード。中身を積む body フレームを返す。"""
-        card = ttk.Frame(parent, style="Card.TFrame", padding=(18, 16))
-        card.grid(row=row, column=0, sticky="new", pady=(0, 14))
-        card.columnconfigure(0, weight=1)
+    def _card(self, parent, number, title):
+        """左アクセントバー＋ドロップシャドウ風カード"""
+        shadow = tk.Frame(parent, bg=SHADOW_C)
+        shadow.pack(fill="x", pady=(0, 16))
+        inner = tk.Frame(shadow, bg=SURFACE)
+        inner.pack(fill="x", padx=(0, 2), pady=(0, 2))
+        accent = tk.Frame(inner, bg=PRIMARY, width=5)
+        accent.pack(side="left", fill="y")
+        body = tk.Frame(inner, bg=SURFACE, padx=20, pady=18)
+        body.pack(side="left", fill="both", expand=True)
 
-        head = ttk.Frame(card, style="Card.TFrame")
-        head.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        ttk.Label(head, text=f"  {number}  ", style="Badge.TLabel").grid(row=0, column=0)
-        ttk.Label(head, text=title, style="CardTitle.TLabel").grid(
-            row=0, column=1, sticky="w", padx=(10, 0))
-
-        body = ttk.Frame(card, style="Card.TFrame")
-        body.grid(row=1, column=0, sticky="nsew")
-        body.columnconfigure(0, weight=1)
+        hdr = tk.Frame(body, bg=SURFACE)
+        hdr.pack(fill="x", pady=(0, 14))
+        tk.Label(hdr, text=f" {number} ",
+                 font=("Helvetica", 11, "bold"),
+                 bg=PRIMARY, fg="white", padx=4, pady=3).pack(side="left")
+        tk.Label(hdr, text=title,
+                 font=("Helvetica", 15, "bold"),
+                 bg=SURFACE, fg=TEXT).pack(side="left", padx=10)
         return body
 
-    def _segment(self, parent, var, options):
-        """セグメントコントロール（ttk.Radiobutton の Toolbutton）。"""
-        seg = ttk.Frame(parent, style="Sub.TFrame")
-        for i, (lbl, val) in enumerate(options):
-            ttk.Radiobutton(seg, text=lbl, value=val, variable=var,
-                            style="Toolbutton").grid(
-                row=0, column=i, padx=(0 if i == 0 else 4, 0))
-        return seg
+    def _btn(self, parent, text, command, font, style="primary"):
+        if style == "primary":
+            return _Btn(parent, text=text, command=command, font=font,
+                        bg=PRIMARY, fg="white", active_bg=PRIMARY_DK,
+                        padx=16, pady=12)
+        return _Btn(parent, text=text, command=command, font=font,
+                    bg=PRIMARY_LT, fg=PRIMARY, active_bg="#CCE9E6",
+                    padx=16, pady=12)
 
-    def _slider_row(self, stack, label, var_attr, label_attr,
+    def _slider_row(self, parent, label,
+                    var_attr, label_attr,
                     from_, to, default, cb, hint):
-        panel = ttk.Frame(stack.f, style="Card.TFrame", padding=(12, 10))
-        panel.columnconfigure(0, weight=1)
+        panel = tk.Frame(parent, bg=SURFACE_ALT,
+                         highlightbackground=BORDER, highlightthickness=1,
+                         padx=14, pady=10)
+        panel.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(panel, text=label, style="Body.TLabel").grid(
-            row=0, column=0, sticky="w")
-        badge = ttk.Label(panel, text="標準" if default == 0.0 else "ふつう",
-                          style="Accent.TLabel")
-        badge.grid(row=0, column=1, sticky="e")
+        top = tk.Frame(panel, bg=SURFACE_ALT)
+        top.pack(fill="x")
+        tk.Label(top, text=label, font=("Helvetica", 12, "bold"),
+                 bg=SURFACE_ALT, fg=TEXT).pack(side="left")
+        badge = tk.Label(top, text="標準" if default == 0.0 else "ふつう",
+                         font=FONT_LABEL,
+                         bg=PRIMARY_LT, fg=PRIMARY, padx=8, pady=2)
+        badge.pack(side="right")
         setattr(self, label_attr, badge)
 
         var = tk.DoubleVar(value=default)
         setattr(self, var_attr, var)
-        ttk.Scale(panel, from_=from_, to=to, variable=var, orient="horizontal",
-                  command=cb).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 4))
 
-        ttk.Label(panel, text=hint, style="Hint.TLabel",
-                  wraplength=360, justify="left").grid(
-            row=2, column=0, columnspan=2, sticky="w")
-        stack.add(panel)
+        ttk.Scale(panel, from_=from_, to=to,
+                  variable=var, orient="horizontal",
+                  command=cb).pack(fill="x", pady=(8, 4))
+
+        tk.Label(panel, text=hint, font=FONT_LABEL,
+                 bg=SURFACE_ALT, fg=TEXT_MUTED,
+                 wraplength=300, justify="left").pack(anchor="w")
+
+    # ── スクロールシェル ──────────────────────────────────
+
+    def _scroll_shell(self, root):
+        vp = tk.Frame(root, bg=BG)
+        vp.pack(fill="both", expand=True)
+        canvas = tk.Canvas(vp, bg=BG, highlightthickness=0)
+        sb = ttk.Scrollbar(vp, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        shell = tk.Frame(canvas, bg=BG)
+        wid = canvas.create_window((0, 0), window=shell, anchor="nw")
+        shell.bind("<Configure>",
+                   lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfigure(wid, width=e.width))
+
+        def _wheel(e):
+            d = getattr(e, "delta", 0)
+            canvas.yview_scroll(-3 if (e.num == 4 or d > 0) else 3, "units")
+            return "break"
+        canvas.bind_all("<MouseWheel>", _wheel)
+        canvas.bind_all("<Button-4>", _wheel)
+        canvas.bind_all("<Button-5>", _wheel)
+        self.scroll_canvas = canvas
+        return shell
 
     # ── ロジック ─────────────────────────────────────────
 
@@ -457,52 +566,59 @@ class MaskApp:
 
     def toggle_face_settings(self):
         if self.faces_var.get():
-            self.face_settings_frame.grid()
+            self.face_settings_frame.pack(fill="x")
         else:
-            self.face_settings_frame.grid_remove()
+            self.face_settings_frame.pack_forget()
 
     def _load_files(self, paths):
         """paths: list[str] — 1本以上のファイルパス"""
-        valid = [p for p in paths if get_media_type(p) is not None]
+        valid = []
+        for p in paths:
+            if get_media_type(p) is not None:
+                valid.append(p)
         if not valid:
             messagebox.showinfo("おしらせ", "対応している画像または動画を選んでください。")
             return
 
         self._input_paths = valid
+        # 先頭ファイルを代表として input_path / media_type に設定
         first = valid[0]
         self.input_path = first
         self.media_type = get_media_type(first)
         self.manual_boxes = []
         self._manual_boxes_per_file = {}
-        self.manual_label.configure(text="範囲: なし", foreground=COLORS["muted"])
+        self.manual_label.config(text="範囲: なし", fg=TEXT_MUTED)
         self._person_clusters = None
         self._update_person_label()
 
         if len(valid) == 1:
             icon = "🖼" if self.media_type == "image" else "🎬"
-            self.file_label.configure(
-                text=f"✓  {icon} {os.path.basename(first)}", foreground=COLORS["success"])
+            self.file_label.config(
+                text=f"✓  {icon} {os.path.basename(first)}", fg=SUCCESS)
         else:
-            self.file_label.configure(
-                text=f"✓  {len(valid)}ファイル選択中", foreground=COLORS["success"])
+            self.file_label.config(
+                text=f"✓  {len(valid)}ファイル選択中", fg=SUCCESS)
 
-        self.set_status("設定を確認して、必要ならプレビューしてください。")
+        self.status.config(text="設定を確認して、必要ならプレビューしてください。")
 
+        # ファイル名入力欄: 複数ファイル時は無効化
         if len(valid) > 1:
-            self._out_name_entry.configure(state="disabled")
-            self._out_name_hint.configure(
+            self._out_name_entry.config(state="disabled", bg="#EAECEF")
+            self._out_name_hint.config(
                 text="複数ファイル処理時は各ファイル名が「元ファイル名_かくし済み」になります")
         else:
-            self._out_name_entry.configure(state="normal")
-            self._out_name_hint.configure(
+            self._out_name_entry.config(state="normal", bg=SURFACE_ALT)
+            self._out_name_hint.config(
                 text="空欄のときは「元ファイル名_かくし済み」になります（拡張子は自動）")
 
+        # 追従チェックは代表ファイル（先頭）に合わせて制御
         if self.media_type == "image":
             self.track_var.set(False)
-            self._track_cb.configure(state="disabled")
+            self._track_cb.config(state="disabled")
         else:
-            self._track_cb.configure(state="normal")
+            self._track_cb.config(state="normal")
 
+    # 後方互換ラッパー（内部利用）
     def _load_file(self, path):
         self._load_files([path])
 
@@ -522,6 +638,7 @@ class MaskApp:
         if paths:
             self._load_files(list(paths))
 
+    # 後方互換エイリアス
     def pick_input(self):
         self.pick_inputs()
 
@@ -532,7 +649,7 @@ class MaskApp:
 
     def _pick_overlay_image(self):
         path = filedialog.askopenfilename(
-            title="キャラ画像（透過PNG推奨）をえらんでください",
+            title="ココちゃん画像（透過PNG推奨）をえらんでください",
             filetypes=[("画像ファイル", "*.png *.webp *.jpg *.jpeg *.bmp"),
                        ("すべてのファイル", "*.*")],
         )
@@ -543,17 +660,15 @@ class MaskApp:
     def _update_overlay_label(self):
         path = self._overlay_path_var.get()
         if path and os.path.exists(path):
-            self._overlay_label.configure(text=os.path.basename(path),
-                                          foreground=COLORS["accent"])
+            self._overlay_label.config(text=os.path.basename(path), fg=PRIMARY)
         else:
-            self._overlay_label.configure(text="画像が未選択です",
-                                          foreground=COLORS["muted"])
+            self._overlay_label.config(text="画像が未選択です", fg=TEXT_MUTED)
 
     def _toggle_overlay_row(self):
         if self.mode_var.get() == "overlay":
-            self._overlay_row.grid()
+            self._overlay_row.pack(fill="x", pady=(8, 0))
         else:
-            self._overlay_row.grid_remove()
+            self._overlay_row.pack_forget()
 
     def open_selector(self):
         if not self.input_path or not os.path.exists(self.input_path):
@@ -571,22 +686,26 @@ class MaskApp:
         self.root.wait_window(selector)
         if selector.result is not None:
             if isinstance(selector.result, dict):
+                # 複数ファイル: ファイルごとの boxes を保存
                 self._manual_boxes_per_file = selector.result
                 files_with_boxes = sum(
-                    1 for boxes in self._manual_boxes_per_file.values() if boxes)
+                    1 for boxes in self._manual_boxes_per_file.values() if boxes
+                )
                 if files_with_boxes:
-                    self.manual_label.configure(
+                    self.manual_label.config(
                         text=f"範囲: {files_with_boxes}ファイルで設定済み",
-                        foreground=COLORS["accent"])
+                        fg=PRIMARY,
+                    )
                 else:
-                    self.manual_label.configure(text="範囲: なし",
-                                                foreground=COLORS["muted"])
+                    self.manual_label.config(text="範囲: なし", fg=TEXT_MUTED)
             else:
+                # 単一ファイル: 従来通り
                 self.manual_boxes = selector.result
                 count = len(self.manual_boxes)
-                self.manual_label.configure(
+                self.manual_label.config(
                     text=f"範囲: {count}か所" if count else "範囲: なし",
-                    foreground=COLORS["accent"] if count else COLORS["muted"])
+                    fg=PRIMARY if count else TEXT_MUTED,
+                )
 
     def open_face_gallery(self):
         if not self.input_path or not os.path.exists(self.input_path):
@@ -603,20 +722,18 @@ class MaskApp:
     def _update_person_label(self):
         clusters = self._person_clusters
         if not clusters:
-            self._person_label.configure(text="全員をかくします",
-                                         foreground=COLORS["muted"])
+            self._person_label.config(text="全員をかくします", fg=TEXT_MUTED)
             return
         off = sum(1 for c in clusters if not c["enabled"])
         if off:
-            self._person_label.configure(
-                text=f"{len(clusters)}人中 {off}人はかくしません",
-                foreground=COLORS["accent"])
+            self._person_label.config(
+                text=f"{len(clusters)}人中 {off}人はかくしません", fg=PRIMARY)
         else:
-            self._person_label.configure(text=f"{len(clusters)}人全員をかくします",
-                                         foreground=COLORS["muted"])
+            self._person_label.config(text=f"{len(clusters)}人全員をかくします",
+                                      fg=TEXT_MUTED)
 
     def set_status(self, message):
-        self.status.configure(text=message)
+        self.status.config(text=message)
 
     @staticmethod
     def _fmt_time(sec):
@@ -632,27 +749,30 @@ class MaskApp:
                 rate = cur / elapsed
                 remaining = (total - cur) / rate if rate > 0 else 0
                 eta = self._fmt_time(remaining)
-                self.set_status(f"かくしています…  {pct}%  (あと約 {eta})")
+                self.status.config(text=f"かくしています…  {pct}%  (あと約 {eta})")
             else:
-                self.set_status(f"かくしています…  {pct}%")
+                self.status.config(text=f"かくしています…  {pct}%")
         else:
-            self.set_status(f"かくしています…  {pct}%")
+            self.status.config(text=f"かくしています…  {pct}%")
         self.root.update_idletasks()
 
     def on_score_change(self, _=None):
         s = self.score_var.get()
-        self.score_label.configure(
-            text="高感度" if s < 0.4 else "ふつう" if s < 0.7 else "厳しめ")
+        text = "高感度" if s < 0.4 else "ふつう" if s < 0.7 else "厳しめ"
+        self.score_label.config(text=text)
 
     def on_margin_change(self, _=None):
         m = self.margin_var.get()
-        self.margin_label.configure(
-            text="標準" if m < 0.15 else "やや広め" if m < 0.30 else "広め")
+        text = "標準" if m < 0.15 else "やや広め" if m < 0.30 else "広め"
+        self.margin_label.config(text=text)
 
     def build_run_params(self, input_path=None):
         manual_masker_fn = make_manual_masker(
-            self.manual_color_var.get(), self.manual_design_var.get())
+            self.manual_color_var.get(),
+            self.manual_design_var.get(),
+        )
         resolved_path = input_path or self.input_path
+        # ファイルごとの boxes があればそれを使い、なければ共通の manual_boxes を使う
         if input_path and input_path in self._manual_boxes_per_file:
             boxes = list(self._manual_boxes_per_file[input_path])
         else:
@@ -672,7 +792,6 @@ class MaskApp:
             face_margin=float(self.margin_var.get()),
             use_scrfd=self.scrfd_var.get(),
             overlay_path=self._overlay_path_var.get() or None,
-            mask_text=self.text_var.get(),
             person_centroids=person_centroids,
             person_enabled=person_enabled,
         )
@@ -699,9 +818,14 @@ class MaskApp:
         self.set_status("キャンセルしています…")
 
     def _make_output_path(self, input_path, media_type, use_custom_name):
+        """1ファイル分の出力パスを返す。
+        use_custom_name=True のとき _out_name_var を使う（1ファイル処理時のみ）。"""
         output_ext = ".mp4" if media_type == "video" else os.path.splitext(input_path)[1]
         folder = self._out_folder_var.get().strip() or os.path.dirname(input_path)
-        name = self._out_name_var.get().strip() if use_custom_name else ""
+        if use_custom_name:
+            name = self._out_name_var.get().strip()
+        else:
+            name = ""
         if not name:
             base = os.path.splitext(os.path.basename(input_path))[0]
             name = base + "_かくし済み"
@@ -712,30 +836,41 @@ class MaskApp:
             messagebox.showinfo("おしらせ", "さきにファイルを選んでください。")
             return
 
+        # _input_paths が空の場合（後方互換）は input_path を使う
         paths = self._input_paths if self._input_paths else [self.input_path]
+        # 存在確認
         paths = [p for p in paths if os.path.exists(p)]
         if not paths:
             messagebox.showinfo("おしらせ", "選択したファイルが見つかりません。")
             return
 
         is_batch = len(paths) > 1
+        # カスタム名は1ファイル処理時のみ使用
         use_custom_name = not is_batch
 
         self._stop_event.clear()
         self._proc_start = time.time()
 
-        self.start_btn.configure(text="⏹  キャンセル", style="TButton",
-                                 command=self._cancel)
-        self.preview_btn.configure(state="disabled")
+        self.start_btn.config(
+            state="normal", text="⏹  キャンセル",
+            bg=DANGER, fg="white",
+            activebackground="#B91C1C",
+            command=self._cancel,
+        )
+        self.preview_btn.config(state="disabled")
         self.progress["value"] = 0
         self.set_status("準備しています…")
 
         stop_event = self._stop_event
 
         def _restore_start_btn():
-            self.start_btn.configure(text="🚀  書き出す", style="Accent.TButton",
-                                     command=self.on_run)
-            self.preview_btn.configure(state="normal")
+            self.start_btn.config(
+                state="normal", text="🚀  書き出す",
+                bg=PRIMARY, fg="white",
+                activebackground=PRIMARY_DK,
+                command=self.on_run,
+            )
+            self.preview_btn.config(state="normal")
 
         def task():
             errors = []
@@ -798,18 +933,22 @@ class MaskApp:
                     self.set_status(f"⚠️  {completed} / {total_files} ファイル処理しました（{len(errors)}件エラー）")
                     messagebox.showerror(
                         "エラー",
-                        f"{completed} / {total_files} ファイルを処理しました。\n\n以下のファイルでエラーが発生しました:\n{err_msg}")
+                        f"{completed} / {total_files} ファイルを処理しました。\n\n以下のファイルでエラーが発生しました:\n{err_msg}"
+                    )
                 elif is_batch:
                     self.set_status(f"✅  {total_files}ファイル処理しました")
                     if last_output_path and messagebox.askyesno(
-                        "完成", f"{total_files}ファイル処理しました！\n\n保存先のフォルダを開きますか？"):
+                        "完成",
+                        f"{total_files}ファイル処理しました！\n\n保存先のフォルダを開きますか？",
+                    ):
                         open_folder(last_output_path)
                 else:
                     self.set_status("✅  できました！")
                     if last_output_path and messagebox.askyesno(
                         "完成",
                         f"できました！\n\n{os.path.basename(last_output_path)}"
-                        "\n\n保存先のフォルダを開きますか？"):
+                        "\n\n保存先のフォルダを開きますか？",
+                    ):
                         open_folder(last_output_path)
 
             self.root.after(0, done)
@@ -830,7 +969,6 @@ class MaskApp:
                 "manual_design": self.manual_design_var.get(),
                 "track":         self.track_var.get(),
                 "overlay_path":  self._overlay_path_var.get(),
-                "mask_text":     self.text_var.get(),
             }
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -865,8 +1003,6 @@ class MaskApp:
             if data.get("overlay_path"):
                 self._overlay_path_var.set(data["overlay_path"])
                 self._update_overlay_label()
-            if "mask_text" in data:
-                self.text_var.set(data["mask_text"])
             self._toggle_overlay_row()
         except Exception:
             pass

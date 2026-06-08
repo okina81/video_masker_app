@@ -43,7 +43,6 @@ GUIは自動操作しづらいので、変更後は次の順で確認する:
 - `video_masker/tracking.py` — `TrackedItem`（CSRT + Kalman）。手動範囲の追従。
 - `video_masker/motion.py` — `estimate_camera_motion`（疎オプティカルフロー）、
   `SceneChangeDetector`（HSVヒストグラム相関）。
-- `video_masker/text_masking.py` — OCR(pytesseract)ベースの文字追従パイプライン。
 - `video_masker/face_clustering.py` — insightface埋め込み + scipy階層クラスタリングで
   同一人物をまとめ、人物ごとのマスク選択を可能にする。
 - `video_masker/media.py` — 形式判定・画像IO（日本語パス対応の imdecode/imencode）・
@@ -61,8 +60,6 @@ GUIは自動操作しづらいので、変更後は次の順で確認する:
 
 ### 任意依存（未導入でも他機能は動く＝graceful degradation）
 
-- 文字マスク: Tesseract本体 + `pytesseract`。`text_masking.is_ocr_available()` で判定。
-  Windows は PATH に無くても既定インストール先を自動検出する（`_ensure_tesseract_cmd`）。
 - 人物選択: `insightface`。`face_clustering.embeddings_available()` で判定。
   未導入なら通常の全顔マスク（YuNet）にフォールバック。
 
@@ -89,70 +86,73 @@ UIを編集するときは既存の設計に合わせる。
   `_save_settings` / `_load_settings` の両方と、自動保存 trace 登録リストに追加する。
 - フォントは `("Helvetica", size, [style])` を使用。
 
+## UI設計ガイドライン（tkinter）
+
+### テーマ
+
+このアプリは素の `tk.Tk()` + カラー定数による自前スタイリングを採用している。
+`sv_ttk` / `ttkthemes` は **使用しない**（カスタムウィジェット `_Btn` など、
+bg/fg を直接指定する自作ウィジェットと競合するため）。
+
+テーマ相当の役割はすべて下記カラーパレットと `_Btn` / `_card` 等のヘルパーが担う。
+
+### カラーパレット（app.py 冒頭の定数）
+
+ococペリブランドカラーを基調としたライトテーマ。
+
+```python
+# ── coccopelli Light Theme ────────────────────────────────
+BG          = "#f0f7fd"   # スカイミスト     ウィンドウ背景
+SURFACE     = "#ffffff"   # ホワイト         カード・パネル背景
+SURFACE_ALT = "#e8f4fc"   # アイスブルー     サイドバー・交互行
+PRIMARY     = "#00a0e9"   # スカイブルー ★   ボタン・強調（ブランドカラー）
+PRIMARY_LT  = "#e0f3fd"   # フロスト         ホバー・選択背景
+PRIMARY_DK  = "#0082c4"   # ディープスカイ   押下・アクティブ状態
+TEXT        = "#1a3a5c"   # ディープネイビー メインテキスト
+TEXT_MUTED  = "#5a87aa"   # スチールブルー   サブテキスト・ヒント
+BORDER      = "#d0e4f5"   # ペールブルー     枠線・区切り線
+SHADOW_C    = "#b8d4ec"   # ソフトシャドウ   カード影色（`_card` 左バー）
+SUCCESS     = "#27ae60"   # グリーン         完了・成功
+DANGER      = "#e74c3c"   # レッド           エラー・警告
+```
+
+**ルール:**
+- 色は必ずこれらの定数を使う。HEXを直書きしない。
+- `PRIMARY` はボタン・左アクセントバー・プログレスバーなど強調要素に統一して使う。
+- `PRIMARY_LT` はホバー背景・選択行・バッジ背景など「薄いアクセント」に使う。
+- `PRIMARY_DK` はボタン押下時の `activebackground` に使う。
+- テキストは原則 `TEXT`。補足・プレースホルダーは `TEXT_MUTED`。
+
+### フォント
+
+```python
+# フォント定数（app.py 冒頭）
+FONT_TITLE  = ("Helvetica", 15, "bold")   # セクションタイトル
+FONT_BODY   = ("Helvetica", 13)           # 本文・ラベル
+FONT_LABEL  = ("Helvetica", 11)           # 小ラベル・ヒント
+FONT_MONO   = ("Menlo", 12)               # パス・数値表示
+```
+
+- フォントサイズ 9 以下は使用禁止。
+- 各ウィジェットでフォントをバラバラに指定しない。定数を参照する。
+
+### ウィジェット・レイアウト
+
+- `tk.Button` は macOS で bg/fg が効かない。ボタンは必ず `_Btn`（`tk.Label` ベース）を使う。
+- レイアウトは `grid()` を基本とし、`pack()` との混在は避ける。
+- `place(x=, y=)` 絶対座標は禁止（リサイズ崩れの原因）。
+- ウィンドウ内側余白: `padx=16, pady=12`。ウィジェット間: `padx=8, pady=6`。
+- リサイズ対応のため `columnconfigure(n, weight=1)` を必ず設定する。
+
+### その他
+
+- ボタンラベルは動詞で始める（「保存」「実行」「キャンセル」）。
+- エラー・警告は `tk.messagebox` またはウィンドウ最下部のステータスバーで表示する。
+- ステータスバーをウィンドウ最下部に常設し、処理状態を表示する。
+
 ## Git
 
 - リモート: https://github.com/okina81/video_masker_app （branch=master）。
 - コミット/プッシュはユーザーが明示したときのみ。フェーズ単位で意味のある粒度にする。
-- `IMG_4388.PNG`（キャラ画像「ココちゃん」）はユーザー希望で追跡しない。
+- `IMG_4388.PNG`（キャラ画像「ococちゃん」）はユーザー希望で追跡しない。
   `face_detection_yunet_2023mar.onnx` は `.gitignore` の例外指定でコミット対象。
-
-## UI設計ガイドライン（tkinter）
-
-### テーマ
-- 必ず `sv_ttk` または `ttkthemes` を使い、ダークテーマで初期化する
-- 素の `tk.Tk()` をテーマなしで起動しない
-
-```python
-import sv_ttk
-root = tk.Tk()
-sv_ttk.set_theme("dark")
-```
-
-### カラーパレット（ococペリブランドカラー準拠）
-```python
-COLORS = {
-    "bg":        "#0d1b3e",   # ネイビー（ウィンドウ背景）
-    "surface":   "#162248",   # ミッドナイト（カード・パネル）
-    "surface2":  "#0d1b3e",   # サイドバー・ナビ
-    "accent":    "#00a0e9",   # スカイブルー（ボタン・強調）★ブランドカラー
-    "accent_dim":"#00a0e920", # アクセント薄め（選択背景）
-    "text":      "#c9d8f0",   # アイスブルー（メインテキスト）
-    "muted":     "#7eb8e8",   # ライトブルー（サブテキスト）
-    "disabled":  "#4a6a8a",   # スレート（無効・ヒント）
-    "border":    "#1e3266",   # ロイヤルブルー（枠線）
-    "danger":    "#f28b82",   # コーラル（エラー・警告）
-    "success":   "#81c995",   # グリーン（成功・完了）
-}
-```
-- このCOLORS辞書以外の色を直接ハードコードしない
-- アクセントカラーは必ず `COLORS["accent"]` を使用する
-
-### フォント（変数で一元管理）
-```python
-FONTS = {
-    "title": ("Helvetica Neue", 15, "bold"),
-    "body":  ("Helvetica Neue", 13),
-    "label": ("Helvetica Neue", 11),
-    "mono":  ("Menlo", 12),
-}
-```
-- フォントサイズ9以下は使用禁止
-- 各ウィジェットでフォントをバラバラに指定しない
-
-### ウィジェット選択
-- `ttk.*` を使う。`tk.Button`, `tk.Entry`, `tk.Frame` などは使わない
-- `tk.OptionMenu` → `ttk.Combobox`
-- `tk.Listbox` → `ttk.Treeview`
-
-### レイアウト
-- `grid()` を基本とし、`pack()` と混在させない
-- `place(x=, y=)` 絶対座標配置は禁止（リサイズ崩れの原因）
-- ウィンドウ内側余白: `padx=16, pady=12`
-- ウィジェット間: `padx=8, pady=6`
-- セクション間: `pady=16`
-- リサイズ対応のため `columnconfigure(n, weight=1)` を必ず設定する
-
-### その他
-- ボタンラベルは動詞で始める（「保存」「実行」「キャンセル」）
-- エラー・警告は専用の `tk.messagebox` または画面内ステータスバーで表示する
-- ステータスバーをウィンドウ最下部に常設し、処理状態を表示する

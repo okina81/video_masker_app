@@ -46,7 +46,6 @@ class FinishPreview(tk.Toplevel):
             self.params["mode"], self.params.get("overlay_path"))
 
         self.track_items = self.make_track_items()
-        self.text_pipeline = self.make_text_pipeline()
 
         # ── ファイル切り替えバー（複数ファイル時のみ）
         if self._all_paths:
@@ -126,7 +125,6 @@ class FinishPreview(tk.Toplevel):
         self._file_idx  = idx
         self.params["manual_boxes"] = self._manual_boxes_per_file.get(path, [])
         self.track_items = self.make_track_items()
-        self.text_pipeline = self.make_text_pipeline()
         self._update_nav_label()
 
         if media_type == "video":
@@ -160,16 +158,6 @@ class FinishPreview(tk.Toplevel):
             return []
         return build_track_items(self.params["manual_boxes"])
 
-    def make_text_pipeline(self):
-        if not self.params.get("mask_text"):
-            return None
-        from video_masker.text_masking import TextMaskPipeline
-        return TextMaskPipeline(
-            ocr_interval=self.params.get("ocr_interval", 15),
-            min_conf=self.params.get("ocr_min_conf", 45),
-            lang=self.params.get("ocr_lang", "jpn+eng"),
-        )
-
     def display_frame(self, frame):
         rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image  = Image.fromarray(rgb)
@@ -200,7 +188,6 @@ class FinishPreview(tk.Toplevel):
                 face_margin=self.params.get("face_margin", 0.0),
                 scrfd_detector=self.params.get("scrfd_detector"),
                 face_masker_fn=self.face_masker_fn,
-                text_pipeline=self.text_pipeline,
             )
             return True
         except ModelPreparationError as exc:
@@ -277,7 +264,6 @@ class FinishPreview(tk.Toplevel):
                     # シーク後は追跡状態をリセット
                     self.face_detector = None
                     self.track_items   = self.make_track_items()
-                    self.text_pipeline = self.make_text_pipeline()
                     self.frame_idx     = target
                     if not self.apply_preview_mask(frame):
                         return
@@ -304,7 +290,6 @@ class FinishPreview(tk.Toplevel):
             self.cap.release()
         self.face_detector = None
         self.track_items   = self.make_track_items()
-        self.text_pipeline = self.make_text_pipeline()
         self.open_video()
         self.show_next_frame()
 
