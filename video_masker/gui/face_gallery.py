@@ -152,7 +152,7 @@ class FaceGalleryDialog(tk.Toplevel):
 
     def _confirm(self):
         self.result = [
-            {"centroid": cluster["centroid"], "enabled": var.get()}
+            {"embeddings": cluster["embeddings"], "enabled": var.get()}
             for cluster, var in zip(self._clusters, self._enabled_vars)
         ]
         self._stop.set()

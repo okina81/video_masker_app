@@ -45,6 +45,13 @@ class FinishPreview(tk.Toplevel):
         self.face_masker_fn = build_face_masker(
             self.params["mode"], self.params.get("overlay_path"))
 
+        # 人物選択（特定の人だけ隠さない）モード判定。アナライザは遅延生成。
+        self._person_embeddings = self.params.get("person_embeddings")
+        self._person_enabled    = self.params.get("person_enabled")
+        self._use_person = bool(self._person_embeddings is not None
+                                and self._person_enabled is not None)
+        self._analyzer = None
+
         self.track_items = self.make_track_items()
 
         # ── ファイル切り替えバー（複数ファイル時のみ）
@@ -172,8 +179,22 @@ class FinishPreview(tk.Toplevel):
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor="nw", image=self.tk_img)
 
+    def _ensure_analyzer(self):
+        """人物選択モードのとき insightface アナライザを1回だけ生成する。
+        使えない場合は人物選択を無効化して通常の全顔マスクにフォールバック。"""
+        if not self._use_person or self._analyzer is not None:
+            return
+        self.status.config(text="顔認識を準備しています…")
+        self.update_idletasks()
+        from video_masker.face_clustering import FaceAnalyzer
+        self._analyzer = FaceAnalyzer()
+        if not self._analyzer.usable:
+            self._use_person = False
+            self.status.config(text="顔認識を準備できなかったため、全員を隠して表示します")
+
     def apply_preview_mask(self, frame):
         try:
+            self._ensure_analyzer()
             self.face_detector = mask_frame(
                 frame,
                 self.frame_idx,
@@ -188,6 +209,9 @@ class FinishPreview(tk.Toplevel):
                 face_margin=self.params.get("face_margin", 0.0),
                 scrfd_detector=self.params.get("scrfd_detector"),
                 face_masker_fn=self.face_masker_fn,
+                analyzer=self._analyzer if self._use_person else None,
+                person_embeddings=self._person_embeddings if self._use_person else None,
+                person_enabled=self._person_enabled if self._use_person else None,
             )
             return True
         except ModelPreparationError as exc:

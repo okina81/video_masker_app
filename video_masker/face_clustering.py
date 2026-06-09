@@ -83,7 +83,12 @@ class FaceAnalyzer:
                 log_cb("顔認識モデルを準備しています（初回のみダウンロードが必要です）…")
             self.app = FaceAnalysis(name="buffalo_l",
                                     allowed_modules=["detection", "recognition"])
-            self.app.prepare(ctx_id=-1, det_size=(640, 640))
+            # det_thresh を下げて検出漏れを減らす（取りこぼし対策）
+            try:
+                self.app.prepare(ctx_id=-1, det_thresh=0.4, det_size=(640, 640))
+            except TypeError:
+                # 古い insightface は prepare に det_thresh が無い
+                self.app.prepare(ctx_id=-1, det_size=(640, 640))
             self.usable = True
         except Exception as exc:
             if log_cb:
@@ -120,7 +125,7 @@ def _crop(frame, bbox, pad=0.2):
     return frame[y0:y1, x0:x1].copy()
 
 
-def collect_faces(media_path, analyzer, sample_step=15, max_samples=400,
+def collect_faces(media_path, analyzer, sample_step=8, max_samples=600,
                   progress_cb=None, stop_event=None):
     """動画/画像から顔を収集して [{embedding, thumbnail(BGR), det_score}] を返す。"""
     if not analyzer.usable:
@@ -172,10 +177,11 @@ def collect_faces(media_path, analyzer, sample_step=15, max_samples=400,
     return records
 
 
-def build_person_clusters(records, distance_threshold=0.6):
+def build_person_clusters(records, distance_threshold=0.7):
     """収集した顔レコードを人物ごとにまとめる。
 
-    返り値: [{centroid, thumbnail(代表), count}] のリスト（多く写る人物順）。
+    返り値: [{centroid, embeddings(正規化済みK×D), thumbnail(代表), count}] の
+    リスト（多く写る人物順）。embeddings は書き出し時の最近傍マッチに使う。
     """
     if not records:
         return []
@@ -187,14 +193,37 @@ def build_person_clusters(records, distance_threshold=0.6):
 
     clusters = []
     for label, recs in groups.items():
-        embs = np.stack([r["embedding"] for r in recs])
-        centroid = embs.mean(axis=0)
+        embs = np.stack([r["embedding"] for r in recs]).astype(np.float32)
+        normed = _normalize(embs)
+        centroid = normed.mean(axis=0)
         # 代表サムネイルは検出スコアが最も高いもの
         best = max(recs, key=lambda r: r["det_score"])
         clusters.append({
             "centroid": centroid.astype(np.float32),
+            "embeddings": normed,        # 正規化済みメンバー埋め込み（K×D）
             "thumbnail": best["thumbnail"],
             "count": len(recs),
         })
     clusters.sort(key=lambda c: c["count"], reverse=True)
     return clusters
+
+
+def assign_to_clusters(embedding, cluster_embeddings_list):
+    """顔の埋め込みを各クラスタのメンバー集合と比較し、最小コサイン距離の
+    クラスタ (index, distance) を返す（k-NN/最近傍方式）。
+
+    cluster_embeddings_list: 各要素が正規化済みの (K, D) 配列。
+    重心一点ではなくメンバー全体との最小距離で判定するため、角度・表情の
+    変化に強い。
+    """
+    e = np.asarray(embedding, dtype=np.float32)
+    e = e / (np.linalg.norm(e) + 1e-8)
+    best_idx, best_dist = -1, float("inf")
+    for i, embs in enumerate(cluster_embeddings_list):
+        if embs is None or len(embs) == 0:
+            continue
+        sims = np.asarray(embs, dtype=np.float32) @ e  # (K,)
+        dist = 1.0 - float(sims.max())                 # 最も近いメンバーまでの距離
+        if dist < best_dist:
+            best_idx, best_dist = i, dist
+    return best_idx, best_dist

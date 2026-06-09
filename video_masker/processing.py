@@ -74,17 +74,21 @@ def mask_faces(frame, face_detector, masker, margin=0.0, scrfd_detector=None):
         mask_region(frame, (box_x, box_y, box_w, box_h), masker)
 
 
-def mask_faces_selective(frame, analyzer, masker, centroids, enabled,
-                         margin=0.0, match_threshold=0.9):
+def mask_faces_selective(frame, analyzer, person_embeddings, enabled, masker,
+                         margin=0.0, match_threshold=0.75):
     """人物選択モードの顔マスク。
 
-    各顔を埋め込みでクラスタ重心と照合し、しきい値内で「OFF にした人物」に
-    一致した顔だけ隠さない。未知の顔は安全側に倒して隠す。
+    各顔を、人物ごとのメンバー埋め込み集合への最小距離で最近傍クラスタに割り当て、
+    しきい値内で一致したクラスタの ON/OFF に従う。
+    - OFF（隠さない）人物に一致 → 隠さない
+    - ON の人物 or どのクラスタにも遠い（未知）→ 隠す（安全側）
+    重心一点ではなくメンバー集合との最小距離で判定するため、同一人物の角度・
+    表情の変化に強く、「隠さない人なのに隠れる」誤マスクを減らす。
     """
-    from video_masker.face_clustering import nearest_cluster
+    from video_masker.face_clustering import assign_to_clusters
 
     for face in analyzer.analyze(frame):
-        idx, dist = nearest_cluster(face["embedding"], centroids)
+        idx, dist = assign_to_clusters(face["embedding"], person_embeddings)
         if 0 <= idx < len(enabled) and dist <= match_threshold and not enabled[idx]:
             continue  # この人物はマスクしない設定
         x, y, fw, fh = face["bbox"]
@@ -153,15 +157,24 @@ def mask_frame(
     face_margin=0.0,
     scrfd_detector=None,
     face_masker_fn=None,
+    analyzer=None,
+    person_embeddings=None,
+    person_enabled=None,
     log_cb=None,
 ):
     masker = face_masker_fn if face_masker_fn is not None else MASKERS[mode]
     if manual_masker_fn is None:
         manual_masker_fn = _default_manual_masker
     if use_faces:
-        if face_detector is None:
-            face_detector = create_face_detector(score, log_cb)
-        mask_faces(frame, face_detector, masker, face_margin, scrfd_detector)
+        if (analyzer is not None and person_embeddings is not None
+                and person_enabled is not None):
+            # 人物選択モード（insightface で検出＋照合し ON の人物だけ隠す）
+            mask_faces_selective(frame, analyzer, person_embeddings,
+                                 person_enabled, masker, face_margin)
+        else:
+            if face_detector is None:
+                face_detector = create_face_detector(score, log_cb)
+            mask_faces(frame, face_detector, masker, face_margin, scrfd_detector)
     mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn, track, track_items)
     return face_detector
 
@@ -178,7 +191,7 @@ def process_video(
     face_margin=0.0,
     use_scrfd=False,
     overlay_path=None,
-    person_centroids=None,
+    person_embeddings=None,
     person_enabled=None,
     progress_cb=None,
     log_cb=None,
@@ -207,7 +220,7 @@ def process_video(
     writer = cv2.VideoWriter(tmp_video, fourcc, fps, (width, height))
 
     # 人物選択（特定の人だけ隠さない）モードを使うか判定
-    use_person_select = bool(use_faces and person_centroids is not None
+    use_person_select = bool(use_faces and person_embeddings is not None
                              and person_enabled is not None)
     analyzer = None
     if use_person_select:
@@ -254,8 +267,8 @@ def process_video(
                 prev_gray = cur_gray
 
             if use_person_select:
-                mask_faces_selective(frame, analyzer, masker, person_centroids,
-                                     person_enabled, face_margin)
+                mask_faces_selective(frame, analyzer, person_embeddings,
+                                     person_enabled, masker, face_margin)
             elif face_detector is not None:
                 mask_faces(frame, face_detector, masker, face_margin, scrfd_detector)
             mask_manual_regions(frame, frame_idx, manual_boxes, manual_masker_fn,
@@ -313,7 +326,7 @@ def process_image(
     face_margin=0.0,
     use_scrfd=False,
     overlay_path=None,
-    person_centroids=None,
+    person_embeddings=None,
     person_enabled=None,
     progress_cb=None,
     log_cb=None,
@@ -323,14 +336,14 @@ def process_image(
         manual_masker_fn = _default_manual_masker
     image = read_image(input_path)
 
-    use_person_select = bool(use_faces and person_centroids is not None
+    use_person_select = bool(use_faces and person_embeddings is not None
                              and person_enabled is not None)
     if use_person_select:
         from video_masker.face_clustering import FaceAnalyzer
         analyzer = FaceAnalyzer(log_cb)
         if analyzer.usable:
-            mask_faces_selective(image, analyzer, masker, person_centroids,
-                                 person_enabled, face_margin)
+            mask_faces_selective(image, analyzer, person_embeddings,
+                                 person_enabled, masker, face_margin)
         else:
             use_person_select = False
 

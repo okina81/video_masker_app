@@ -791,9 +791,9 @@ class MaskApp:
             boxes = list(self._manual_boxes_per_file[input_path])
         else:
             boxes = list(self.manual_boxes)
-        person_centroids = person_enabled = None
+        person_embeddings = person_enabled = None
         if self._person_clusters:
-            person_centroids = [c["centroid"] for c in self._person_clusters]
+            person_embeddings = [c["embeddings"] for c in self._person_clusters]
             person_enabled = [bool(c["enabled"]) for c in self._person_clusters]
         return dict(
             input_path=resolved_path,
@@ -806,7 +806,7 @@ class MaskApp:
             face_margin=float(self.margin_var.get()),
             use_scrfd=self.scrfd_var.get(),
             overlay_path=self._overlay_path_var.get() or None,
-            person_centroids=person_centroids,
+            person_embeddings=person_embeddings,
             person_enabled=person_enabled,
         )
 
