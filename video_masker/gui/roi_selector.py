@@ -136,7 +136,8 @@ class RoiSelector(tk.Toplevel):
                       "ボックスをドラッグ: 移動　角をドラッグ: リサイズ")
         tk.Label(self, text=hint_line1, font=("Helvetica", 11)).pack(pady=(10, 0), padx=10)
         if self.media_type == "video":
-            hint_line2 = "シークバーで目的のフレームに移動してから描くと、そのフレーム以降だけ適用されます"
+            hint_line2 = ("シークバーで目的のフレームに移動してから描くと、そのフレーム以降だけ適用されます"
+                          "／点線で薄く表示される範囲は、今のフレームでは適用されません")
             tk.Label(self, text=hint_line2, font=("Helvetica", 11), fg="#555555").pack(pady=(2, 4), padx=10)
         else:
             tk.Label(self, text="").pack(pady=(2, 4))
@@ -430,6 +431,18 @@ class RoiSelector(tk.Toplevel):
             self.time_label.config(text=cur_time + " / " + total_time)
             self._update_timeline_label()
 
+    def _box_active_now(self, box):
+        """現在表示中フレームでこの範囲が適用されるか（開始 <= now < 終了）。"""
+        if self.media_type != "video":
+            return True
+        start = _box_start(box)
+        end = _box_end(box)
+        if self.cur_frame < start:
+            return False
+        if end is not None and self.cur_frame >= end:
+            return False
+        return True
+
     def draw_boxes(self):
         fill_color = _bgr_to_hex(self.color_bgr)
         for i, box in enumerate(self.boxes, start=1):
@@ -437,13 +450,22 @@ class RoiSelector(tk.Toplevel):
             x0, y0 = x * self.scale, y * self.scale
             x1, y1 = (x + w) * self.scale, (y + h) * self.scale
             selected = (i - 1) == self._selected_idx
+            end = _box_end(box)
+
+            # 現在フレームで適用されない範囲（開始前・終了後）は薄いゴースト表示
+            if not self._box_active_now(box):
+                self.canvas.create_rectangle(x0, y0, x1, y1, outline="#9AA7B4",
+                                             width=2 if selected else 1, dash=(4, 3))
+                self.canvas.create_text(x0 + 12, y0 + 10, text=str(i),
+                                        fill="#9AA7B4", font=("Helvetica", 10))
+                continue
+
             accent = "#0072B2" if selected else "#D55E00"
             self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill_color, stipple="gray50", outline="")
             self.canvas.create_rectangle(x0, y0, x1, y1, outline="#FFFFFF", width=4)
             self.canvas.create_rectangle(x0, y0, x1, y1, outline=accent,
                                          width=3 if selected else 2)
             # 番号バッジ（終了フレーム設定済みなら ⏹ を付ける）
-            end = _box_end(box)
             badge = f"{i}⏹" if end is not None else str(i)
             bw = 30 if end is not None else 22
             self.canvas.create_rectangle(x0, y0, x0 + bw, y0 + 18, fill=accent, outline="#FFFFFF")
